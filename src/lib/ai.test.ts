@@ -4,8 +4,10 @@ import {
   buildAgentMessages,
   defaultAiSettings,
   generateCharacterWithAi,
+  generateProxyActionOptions,
   normalizeAiSettings,
   runAiAgentTurn,
+  runAiAgentTurnStreaming,
 } from "@/lib/ai";
 import { createEmptyCharacter } from "@/lib/rulesets";
 import type { AiSettings, CampaignDetail, NpcCharacter } from "@/types";
@@ -218,6 +220,89 @@ describe("ai prompt builder", () => {
     expect(character.attributes.mind).toBe(4);
     expect(character.skills.神秘学).toBe(2);
     expect(character.inventory).toEqual(["录音笔"]);
+  });
+
+  it("retries JSON-mode character generation against compatible providers", async () => {
+    const requests: unknown[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      requests.push(body);
+      if ("response_format" in body) {
+        return new Response("unknown parameter: response_format", { status: 400 });
+      }
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              content: "{\"name\":\"林岚\",\"concept\":\"调查员\"}",
+            },
+          },
+        ],
+      });
+    });
+
+    const character = await generateCharacterWithAi(withApiKey(), "light-rules-v1", {
+      concept: "调查员",
+      tone: "悬疑",
+      profession: "记者",
+    });
+
+    expect(character.name).toBe("林岚");
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toHaveProperty("response_format");
+    expect(requests[1]).not.toHaveProperty("response_format");
+  });
+
+  it("retries JSON-mode proxy options against compatible providers", async () => {
+    const requests: unknown[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      requests.push(body);
+      if ("response_format" in body) {
+        return new Response("json_object is unsupported", { status: 400 });
+      }
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              content: "{\"options\":[\"观察雾气\",\"询问守卫\"]}",
+            },
+          },
+        ],
+      });
+    });
+
+    const options = await generateProxyActionOptions(withApiKey(), detail);
+
+    expect(options).toEqual(["观察雾气", "询问守卫"]);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).not.toHaveProperty("response_format");
+  });
+
+  it("reports malformed streaming JSON instead of dropping it", async () => {
+    vi.stubGlobal("fetch", async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("data: {not-json}\n\n"));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(
+      runAiAgentTurnStreaming(
+        defaultAiSettings.agents[0],
+        {
+          detail,
+          playerAction: "我查看信件。",
+          settings: withApiKey(),
+        },
+        () => {},
+      ),
+    ).rejects.toThrow("AI 流式响应不是有效 JSON");
   });
 });
 

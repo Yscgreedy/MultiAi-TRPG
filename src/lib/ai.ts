@@ -894,36 +894,26 @@ export async function generateCharacterWithAi(
   const ruleset = getRuleset(rulesetId);
   const endpoint = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const requestBody = {
-      model,
-      messages: [
-        {
-          role: "system",
-          content: "你只输出可解析 JSON，不要 Markdown，不要解释。",
-        },
-        {
-          role: "user",
-          content: ruleset.buildCharacterPrompt(seed),
-        },
-      ],
-      temperature: 0.8,
-      response_format: { type: "json_object" },
-    };
-  let response = await postChatCompletion(endpoint, provider.apiKey, requestBody);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (shouldRetryWithoutJsonMode(errorText)) {
-      const fallbackBody: Omit<typeof requestBody, "response_format"> = {
-        model: requestBody.model,
-        messages: requestBody.messages,
-        temperature: requestBody.temperature,
-      };
-      response = await postChatCompletion(endpoint, provider.apiKey, fallbackBody);
-    }
-    if (!response.ok) {
-      throw new Error(`角色卡生成失败：${response.status} ${await response.text()}`);
-    }
-  }
+    model,
+    messages: [
+      {
+        role: "system",
+        content: "你只输出可解析 JSON，不要 Markdown，不要解释。",
+      },
+      {
+        role: "user",
+        content: ruleset.buildCharacterPrompt(seed),
+      },
+    ],
+    temperature: 0.8,
+    response_format: { type: "json_object" as const },
+  };
+  const response = await postJsonModeChatCompletion(
+    endpoint,
+    provider.apiKey,
+    requestBody,
+    "角色卡生成失败",
+  );
 
   const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
@@ -975,22 +965,14 @@ export async function generateProxyActionOptions(
       },
     ],
     temperature: 0.7,
-    response_format: { type: "json_object" },
+    response_format: { type: "json_object" as const },
   };
-  let response = await postChatCompletion(endpoint, provider.apiKey, requestBody);
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (shouldRetryWithoutJsonMode(errorText)) {
-      response = await postChatCompletion(endpoint, provider.apiKey, {
-        model: requestBody.model,
-        messages: requestBody.messages,
-        temperature: requestBody.temperature,
-      });
-    }
-    if (!response.ok) {
-      throw new Error(`代理选项生成失败：${response.status} ${await response.text()}`);
-    }
-  }
+  const response = await postJsonModeChatCompletion(
+    endpoint,
+    provider.apiKey,
+    requestBody,
+    "代理选项生成失败",
+  );
 
   const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
@@ -1036,6 +1018,33 @@ async function postChatCompletion(
     },
     body: JSON.stringify(body),
   });
+}
+
+async function postJsonModeChatCompletion<
+  T extends { response_format?: { type: "json_object" } },
+>(
+  endpoint: string,
+  apiKey: string,
+  body: T,
+  errorPrefix: string,
+): Promise<Response> {
+  const response = await postChatCompletion(endpoint, apiKey, body);
+  if (response.ok) {
+    return response;
+  }
+
+  const errorText = await response.text();
+  if (!body.response_format || !shouldRetryWithoutJsonMode(errorText)) {
+    throw new Error(`${errorPrefix}：${response.status} ${errorText}`);
+  }
+
+  const compatibleBody = { ...body };
+  delete compatibleBody.response_format;
+  const retry = await postChatCompletion(endpoint, apiKey, compatibleBody);
+  if (!retry.ok) {
+    throw new Error(`${errorPrefix}：${retry.status} ${await retry.text()}`);
+  }
+  return retry;
 }
 
 async function readChatCompletionResponse(
@@ -1129,7 +1138,7 @@ function parseStreamLine(line: string): string {
       ""
     );
   } catch {
-    return "";
+    throw new Error(`AI 流式响应不是有效 JSON：${data.slice(0, 120)}`);
   }
 }
 

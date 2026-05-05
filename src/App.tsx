@@ -57,6 +57,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Field,
   FieldDescription,
   FieldGroup,
@@ -165,6 +173,7 @@ function App() {
   const [proxyMode, setProxyMode] = useState(false);
   const [proxyOptions, setProxyOptions] = useState<string[]>([]);
   const [generatingProxyOptions, setGeneratingProxyOptions] = useState(false);
+  const [deleteCampaignId, setDeleteCampaignId] = useState<string | null>(null);
   const [playerAction, setPlayerAction] = useState(
     "我检查求救信上的水渍和折痕，寻找寄信人的线索。",
   );
@@ -330,18 +339,16 @@ function App() {
     }
   }
 
-  async function handleDeleteCampaign(campaignId: string) {
-    const campaign = campaigns.find((item) => item.id === campaignId);
-    const confirmed = window.confirm(
-      `确定删除「${campaign?.title ?? "该战役"}」吗？对应的断点、消息和战役角色会被删除；如果使用了角色库卡片，该卡片会被释放。`,
-    );
-    if (!confirmed) {
+  async function handleDeleteCampaign() {
+    if (!deleteCampaignId) {
       return;
     }
 
+    const campaignId = deleteCampaignId;
     setBusy(true);
     try {
       await requireRepository().deleteCampaign(campaignId);
+      setDeleteCampaignId(null);
       await reloadLibrary();
       await reloadCampaigns(detail?.campaign.id === campaignId ? null : detail?.campaign.id);
       toast.success("断点已删除，关联角色卡已释放。");
@@ -734,7 +741,7 @@ function App() {
                         disabled={busy}
                         onClick={(event) => {
                           event.stopPropagation();
-                          void handleDeleteCampaign(campaign.id);
+                          setDeleteCampaignId(campaign.id);
                         }}
                       >
                         <Trash2Icon />
@@ -794,8 +801,54 @@ function App() {
         </section>
       </main>
       )}
+      <DeleteCampaignDialog
+        campaign={campaigns.find((campaign) => campaign.id === deleteCampaignId)}
+        open={Boolean(deleteCampaignId)}
+        busy={busy}
+        onOpenChange={(open) => {
+          if (!open && !busy) {
+            setDeleteCampaignId(null);
+          }
+        }}
+        onConfirm={() => void handleDeleteCampaign()}
+      />
       <Toaster />
     </div>
+  );
+}
+
+function DeleteCampaignDialog({
+  campaign,
+  open,
+  busy,
+  onOpenChange,
+  onConfirm,
+}: {
+  campaign?: Campaign;
+  open: boolean;
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>删除断点</DialogTitle>
+          <DialogDescription>
+            确定删除「{campaign?.title ?? "该战役"}」吗？对应的断点、消息和战役角色会被删除；如果使用了角色库卡片，该卡片会被释放。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button variant="destructive" disabled={busy} onClick={onConfirm}>
+            删除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
