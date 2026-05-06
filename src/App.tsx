@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArchiveIcon,
+  BookOpenIcon,
   BotIcon,
   Dice5Icon,
   LockIcon,
@@ -14,6 +15,8 @@ import {
   SparklesIcon,
   SwordsIcon,
   Trash2Icon,
+  UnlockIcon,
+  UploadIcon,
   UserIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -36,6 +39,7 @@ import {
   toLibraryEntry,
 } from "@/lib/rulesets";
 import { createRepository, type GameRepository } from "@/lib/storage";
+import { importRulebookDocument } from "@/lib/rag";
 import { createId, nowIso } from "@/lib/id";
 import type {
   AiAgentConfig,
@@ -45,6 +49,7 @@ import type {
   CampaignDetail,
   CharacterCard,
   CharacterLibraryEntry,
+  RulebookDocument,
 } from "@/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -158,12 +163,16 @@ function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [libraryCharacters, setLibraryCharacters] = useState<CharacterLibraryEntry[]>([]);
   const [libraryRulesetId, setLibraryRulesetId] = useState("light-rules-v1");
+  const [rulebookDocuments, setRulebookDocuments] = useState<RulebookDocument[]>([]);
+  const [rulebookRulesetId, setRulebookRulesetId] = useState("light-rules-v1");
+  const [rulebookTitle, setRulebookTitle] = useState("");
+  const [rulebookContent, setRulebookContent] = useState("");
   const [editingCharacter, setEditingCharacter] = useState<CharacterLibraryEntry>(() =>
     toLibraryEntry(createEmptyCharacter("light-rules-v1"), "manual"),
   );
   const [detail, setDetail] = useState<CampaignDetail>();
   const [settings, setSettings] = useState<AiSettings>();
-  const [activePage, setActivePage] = useState<"game" | "characters">("game");
+  const [activePage, setActivePage] = useState<"game" | "characters" | "rules">("game");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fetchingProviderId, setFetchingProviderId] = useState<string>();
   const [preferences, setPreferences] = useState<AppPreferences>(() =>
@@ -174,6 +183,7 @@ function App() {
   const [proxyMode, setProxyMode] = useState(false);
   const [proxyOptions, setProxyOptions] = useState<string[]>([]);
   const [generatingProxyOptions, setGeneratingProxyOptions] = useState(false);
+  const [importingRulebook, setImportingRulebook] = useState(false);
   const [deleteCampaignId, setDeleteCampaignId] = useState<string | null>(null);
   const [playerAction, setPlayerAction] = useState(
     "我检查求救信上的水渍和折痕，寻找寄信人的线索。",
@@ -209,6 +219,7 @@ function App() {
         setSettings(storedSettings);
         setCampaigns(storedCampaigns);
         setLibraryCharacters(await repository.listLibraryCharacters());
+        setRulebookDocuments(await repository.listRulebookDocuments());
         if (storedCampaigns[0]) {
           setDetail(await repository.getCampaignDetail(storedCampaigns[0].id));
         }
@@ -237,6 +248,10 @@ function App() {
 
   async function reloadLibrary() {
     setLibraryCharacters(await requireRepository().listLibraryCharacters());
+  }
+
+  async function reloadRulebooks() {
+    setRulebookDocuments(await requireRepository().listRulebookDocuments());
   }
 
   function requireRepository(): GameRepository {
@@ -314,10 +329,10 @@ function App() {
       await requireRepository().saveLibraryCharacter(entry);
       setEditingCharacter(entry);
       await reloadLibrary();
-      toast.success("AI 角色卡已生成并加入角色库。");
+      toast.success("角色卡已生成并加入角色库。");
     } catch (error) {
-      console.error("AI 生成角色卡失败", error);
-      toast.error(getErrorMessage(error, "AI 生成角色卡失败"));
+      console.error("生成角色卡失败", error);
+      toast.error(getErrorMessage(error, "生成角色卡失败"));
     } finally {
       setBusy(false);
     }
@@ -335,6 +350,46 @@ function App() {
     } catch (error) {
       console.error("删除角色卡失败", error);
       toast.error(getErrorMessage(error, "删除角色卡失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImportRulebook() {
+    if (!settings) {
+      return;
+    }
+
+    setImportingRulebook(true);
+    try {
+      const document = await importRulebookDocument(requireRepository(), {
+        rulesetId: rulebookRulesetId,
+        title: rulebookTitle,
+        sourceName: rulebookTitle || "manual",
+        content: rulebookContent,
+        settings,
+      });
+      setRulebookTitle("");
+      setRulebookContent("");
+      await reloadRulebooks();
+      toast.success(`规则书已导入，生成 ${document.chunkCount} 个检索片段。`);
+    } catch (error) {
+      console.error("导入规则书失败", error);
+      toast.error(getErrorMessage(error, "导入规则书失败"));
+    } finally {
+      setImportingRulebook(false);
+    }
+  }
+
+  async function handleDeleteRulebook(documentId: string) {
+    setBusy(true);
+    try {
+      await requireRepository().deleteRulebookDocument(documentId);
+      await reloadRulebooks();
+      toast.success("规则书已删除。");
+    } catch (error) {
+      console.error("删除规则书失败", error);
+      toast.error(getErrorMessage(error, "删除规则书失败"));
     } finally {
       setBusy(false);
     }
@@ -728,6 +783,13 @@ function App() {
               角色卡
             </Button>
             <Button
+              variant={activePage === "rules" ? "secondary" : "ghost"}
+              onClick={() => setActivePage("rules")}
+            >
+              <BookOpenIcon data-icon="inline-start" />
+              规则书
+            </Button>
+            <Button
               variant={settingsOpen ? "secondary" : "outline"}
               onClick={() => setSettingsOpen(true)}
             >
@@ -772,6 +834,26 @@ function App() {
             onGenerate={handleGenerateLibraryCharacter}
             onDelete={handleDeleteLibraryCharacter}
           />
+          </div>
+        </main>
+      ) : activePage === "rules" ? (
+        <main className="min-h-0 flex-1 overflow-hidden px-6 py-4">
+          <div className="mx-auto h-full max-w-7xl">
+            <RulebookPage
+              busy={busy || importingRulebook}
+              settings={settings}
+              rulesetId={rulebookRulesetId}
+              documents={rulebookDocuments.filter(
+                (document) => document.rulesetId === rulebookRulesetId,
+              )}
+              title={rulebookTitle}
+              content={rulebookContent}
+              onRulesetChange={setRulebookRulesetId}
+              onTitleChange={setRulebookTitle}
+              onContentChange={setRulebookContent}
+              onImport={handleImportRulebook}
+              onDelete={handleDeleteRulebook}
+            />
           </div>
         </main>
       ) : (
@@ -1022,7 +1104,7 @@ function CharacterLibraryPage({
             </Button>
             <Button onClick={onGenerate} disabled={busy}>
               <SparklesIcon data-icon="inline-start" />
-              AI 生成
+              生成
             </Button>
           </div>
           <ScrollArea className="h-[520px]">
@@ -1041,7 +1123,7 @@ function CharacterLibraryPage({
                       {character.lockedByCampaignId && <LockIcon />}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {character.concept} · {character.source}
+                      {character.concept}
                       {character.lockedByCampaignTitle
                         ? ` · ${character.lockedByCampaignTitle}`
                         : ""}
@@ -1053,7 +1135,7 @@ function CharacterLibraryPage({
                 <Alert>
                   <UserIcon />
                   <AlertTitle>暂无角色</AlertTitle>
-                  <AlertDescription>新建或使用 AI 生成第一张角色卡。</AlertDescription>
+                  <AlertDescription>新建或使用生成器创建第一张角色卡。</AlertDescription>
                 </Alert>
               )}
             </div>
@@ -1078,7 +1160,20 @@ function CharacterLibraryPage({
               {requiresAttributeUnlock && !attributesUnlocked && !isCampaignLocked && (
                 <Badge variant="outline">数值锁定</Badge>
               )}
-              <Badge variant="secondary">{editingCharacter.source}</Badge>
+              {requiresAttributeUnlock && !isCampaignLocked && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    attributesUnlocked
+                      ? setAttributeUnlockedCharacterId(undefined)
+                      : requestAttributeUnlock()
+                  }
+                >
+                  {attributesUnlocked ? <LockIcon data-icon="inline-start" /> : <UnlockIcon data-icon="inline-start" />}
+                  {attributesUnlocked ? "重新锁定数值" : "解锁数值"}
+                </Button>
+              )}
             </div>
           </div>
           {isCampaignLocked && (
@@ -1234,6 +1329,167 @@ function CharacterLibraryPage({
               </FieldGroup>
             </TabsContent>
           </Tabs>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RulebookPage({
+  busy,
+  settings,
+  rulesetId,
+  documents,
+  title,
+  content,
+  onRulesetChange,
+  onTitleChange,
+  onContentChange,
+  onImport,
+  onDelete,
+}: {
+  busy: boolean;
+  settings?: AiSettings;
+  rulesetId: string;
+  documents: RulebookDocument[];
+  title: string;
+  content: string;
+  onRulesetChange: (rulesetId: string) => void;
+  onTitleChange: (title: string) => void;
+  onContentChange: (content: string) => void;
+  onImport: () => void;
+  onDelete: (documentId: string) => void;
+}) {
+  async function handleFile(file: File | undefined) {
+    if (!file) {
+      return;
+    }
+    onTitleChange(title || file.name.replace(/\.[^.]+$/, ""));
+    onContentChange(await readFileAsText(file));
+  }
+
+  const ragReady = Boolean(settings?.rag.enabled && settings.rag.embeddingModel.trim());
+
+  return (
+    <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
+      <Card className="min-h-0">
+        <CardHeader>
+          <CardTitle>规则书导入</CardTitle>
+          <CardDescription>
+            文本会按片段生成 embedding，回合中自动检索同规则书内容。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Field>
+            <FieldLabel htmlFor="rulebook-ruleset">规则书分类</FieldLabel>
+            <Select value={rulesetId} onValueChange={onRulesetChange}>
+              <SelectTrigger id="rulebook-ruleset" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {rulesets.map((ruleset) => (
+                    <SelectItem key={ruleset.id} value={ruleset.id}>
+                      {ruleset.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rulebook-title">标题</FieldLabel>
+            <Input
+              id="rulebook-title"
+              value={title}
+              onChange={(event) => onTitleChange(event.target.value)}
+              placeholder="例如：轻规则 v1 判定补充"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rulebook-file">导入文本文件</FieldLabel>
+            <Input
+              id="rulebook-file"
+              type="file"
+              accept=".txt,.md,.markdown,text/plain,text/markdown"
+              onChange={(event) => void handleFile(event.target.files?.[0])}
+            />
+            <FieldDescription>也可以直接在右侧粘贴规则书文本。</FieldDescription>
+          </Field>
+          <Button
+            onClick={onImport}
+            disabled={busy || !content.trim() || !ragReady}
+          >
+            <UploadIcon data-icon="inline-start" />
+            {busy ? "导入中" : "生成向量并导入"}
+          </Button>
+          {!ragReady && (
+            <Alert>
+              <SettingsIcon />
+              <AlertTitle>RAG 尚未就绪</AlertTitle>
+              <AlertDescription>
+                请在 AI 设置里启用 RAG，并填写 embedding 模型。
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="min-h-0 overflow-hidden">
+        <CardHeader>
+          <CardTitle>规则书知识库</CardTitle>
+          <CardDescription>
+            当前分类已有 {documents.length} 份规则书；rerank 模型为空时只使用向量相似度。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid min-h-0 gap-4 lg:grid-cols-[1fr_340px]">
+          <Field className="min-h-0">
+            <FieldLabel htmlFor="rulebook-content">规则书文本</FieldLabel>
+            <Textarea
+              id="rulebook-content"
+              className="min-h-[420px]"
+              value={content}
+              onChange={(event) => onContentChange(event.target.value)}
+              placeholder="粘贴规则说明、判定流程、职业能力、物品规则等文本。"
+            />
+          </Field>
+          <ScrollArea className="h-[calc(100vh-260px)] pr-3">
+            <div className="flex flex-col gap-3">
+              {documents.map((document) => (
+                <div key={document.id} className="rounded-lg border p-3">
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{document.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {document.chunkCount} 个片段 · {new Date(document.updatedAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onDelete(document.id)}
+                      disabled={busy}
+                    >
+                      <Trash2Icon />
+                      <span className="sr-only">删除规则书</span>
+                    </Button>
+                  </div>
+                  <p className="line-clamp-4 text-xs leading-5 text-muted-foreground">
+                    {document.content.slice(0, 220)}
+                  </p>
+                </div>
+              ))}
+              {!documents.length && (
+                <Alert>
+                  <BookOpenIcon />
+                  <AlertTitle>暂无规则书</AlertTitle>
+                  <AlertDescription>
+                    导入后，回合会自动检索相关片段并加入 AI 上下文。
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
           </ScrollArea>
         </CardContent>
       </Card>
@@ -1411,6 +1667,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(reader.error ?? new Error("读取头像图片失败"));
     reader.readAsDataURL(file);
+  });
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("读取规则书失败"));
+    reader.readAsText(file);
   });
 }
 
@@ -1642,6 +1907,147 @@ function SettingsForm({
           </Field>
         ))}
       </FieldSet>
+      <FieldSet>
+        <FieldLabel>规则书 RAG</FieldLabel>
+        <FieldDescription>
+          导入规则书和回合检索都使用这里的模型；rerank 模型留空则不调用 rerank。
+        </FieldDescription>
+        <Field orientation="horizontal">
+          <Switch
+            checked={settings.rag.enabled}
+            onCheckedChange={(enabled) =>
+              onChange(mergeSettings(settings, { rag: { ...settings.rag, enabled } }))
+            }
+          />
+          <div className="min-w-0 flex-1">
+            <FieldLabel>启用规则书检索</FieldLabel>
+            <FieldDescription>启用后，玩家行动会检索同规则书知识库。</FieldDescription>
+          </div>
+        </Field>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor="rag-embedding-provider">Embedding Provider</FieldLabel>
+            <Select
+              value={settings.rag.embeddingProviderId || settings.defaultProviderId}
+              onValueChange={(embeddingProviderId) =>
+                onChange(
+                  mergeSettings(settings, {
+                    rag: { ...settings.rag, embeddingProviderId },
+                  }),
+                )
+              }
+            >
+              <SelectTrigger id="rag-embedding-provider" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {settings.providers.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rag-embedding-model">Embedding 模型</FieldLabel>
+            <Input
+              id="rag-embedding-model"
+              value={settings.rag.embeddingModel}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(event) =>
+                onChange(
+                  mergeSettings(settings, {
+                    rag: { ...settings.rag, embeddingModel: event.target.value },
+                  }),
+                )
+              }
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rag-rerank-provider">Rerank Provider</FieldLabel>
+            <Select
+              value={settings.rag.rerankProviderId || settings.rag.embeddingProviderId || settings.defaultProviderId}
+              onValueChange={(rerankProviderId) =>
+                onChange(
+                  mergeSettings(settings, {
+                    rag: { ...settings.rag, rerankProviderId },
+                  }),
+                )
+              }
+            >
+              <SelectTrigger id="rag-rerank-provider" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {settings.providers.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rag-rerank-model">Rerank 模型</FieldLabel>
+            <Input
+              id="rag-rerank-model"
+              value={settings.rag.rerankModel}
+              placeholder="留空则不使用 rerank"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(event) =>
+                onChange(
+                  mergeSettings(settings, {
+                    rag: { ...settings.rag, rerankModel: event.target.value },
+                  }),
+                )
+              }
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rag-top-k">检索片段数</FieldLabel>
+            <Input
+              id="rag-top-k"
+              type="number"
+              min={1}
+              max={12}
+              value={settings.rag.topK}
+              onChange={(event) =>
+                onChange(
+                  mergeSettings(settings, {
+                    rag: { ...settings.rag, topK: Number(event.target.value) },
+                  }),
+                )
+              }
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rag-chunk-size">切片长度</FieldLabel>
+            <Input
+              id="rag-chunk-size"
+              type="number"
+              min={300}
+              max={2400}
+              value={settings.rag.chunkSize}
+              onChange={(event) =>
+                onChange(
+                  mergeSettings(settings, {
+                    rag: { ...settings.rag, chunkSize: Number(event.target.value) },
+                  }),
+                )
+              }
+            />
+          </Field>
+        </div>
+      </FieldSet>
       <Button onClick={onSave} disabled={busy}>
         <SaveIcon data-icon="inline-start" />
         保存设置
@@ -1835,6 +2241,17 @@ function removeProvider(settings: AiSettings, providerId: string): AiSettings {
           }
         : agent,
     ),
+    rag: {
+      ...settings.rag,
+      embeddingProviderId:
+        settings.rag.embeddingProviderId === providerId
+          ? fallbackProviderId
+          : settings.rag.embeddingProviderId,
+      rerankProviderId:
+        settings.rag.rerankProviderId === providerId
+          ? fallbackProviderId
+          : settings.rag.rerankProviderId,
+    },
   });
 }
 

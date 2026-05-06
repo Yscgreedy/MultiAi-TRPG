@@ -4,6 +4,7 @@ import {
   type AiTurnInput,
   type AiTurnOutput,
   defaultAiSettings,
+  getArchivistAgent,
   getTurnAgents,
   normalizeAiSettings,
   resolvePrivateChatTarget,
@@ -12,7 +13,11 @@ import {
   runMultiAgentTurn,
 } from "@/lib/ai";
 import { createId, nowIso } from "@/lib/id";
-import { createEmptyCharacter, normalizeGeneratedCharacter } from "@/lib/rulesets";
+import { buildRulesRagContext } from "@/lib/rag";
+import {
+  createEmptyCharacter,
+  normalizeGeneratedCharacter,
+} from "@/lib/rulesets";
 import type {
   AiSettings,
   CampaignDetail,
@@ -39,7 +44,10 @@ export async function bootstrapCampaign(
   repository: GameRepository,
   input: NewCampaignInput,
 ): Promise<CampaignDetail> {
-  const character = createEmptyCharacter(input.rulesetId, input.characterConcept);
+  const character = createEmptyCharacter(
+    input.rulesetId,
+    input.characterConcept,
+  );
   return repository.createCampaign({
     title: input.title || "未命名战役",
     premise: input.premise || "一场尚未揭晓的单人冒险。",
@@ -85,13 +93,25 @@ export async function playTurn(
     ...detail,
     messages: [...detail.messages, playerMessage],
   };
-  const hiddenRulesOutput = await runHiddenRulesJudgeTurn(baseDetail, action, settings);
+  const rulesContext = await buildRulesRagContext(
+    repository,
+    settings,
+    detail.campaign.rulesetId,
+    action,
+  );
+  const hiddenRulesOutput = await runHiddenRulesJudgeTurn(
+    baseDetail,
+    action,
+    settings,
+    rulesContext,
+  );
   const aiOutputs = await runMultiAgentTurn({
     detail: baseDetail,
     playerAction: action,
     settings,
     privateChat,
     hiddenRulesAdvice: hiddenRulesOutput?.content,
+    rulesContext,
     toolRuntime: createToolRuntime(repository, baseDetail, "gm"),
   });
 
@@ -107,6 +127,32 @@ export async function playTurn(
   for (const message of aiMessages) {
     if (message.content.trim()) {
       await repository.appendMessage(message);
+    }
+  }
+
+  // 记录员在每轮最后执行，可以看到本回合所有输出
+  const archivistDetail: CampaignDetail = {
+    ...baseDetail,
+    messages: [...baseDetail.messages, ...aiMessages],
+  };
+  const archivistOutput = await runArchivistTurn(
+    archivistDetail,
+    action,
+    settings,
+    rulesContext,
+  );
+  if (archivistOutput) {
+    const archivistMessage: GameMessage = {
+      id: createId("msg"),
+      campaignId: detail.campaign.id,
+      sessionId: detail.session.id,
+      author: archivistOutput.role,
+      content: archivistOutput.content,
+      createdAt: nowIso(),
+    };
+    if (archivistMessage.content.trim()) {
+      await repository.appendMessage(archivistMessage);
+      aiMessages.push(archivistMessage);
     }
   }
 
@@ -132,6 +178,7 @@ export async function playTurn(
             label: privateChat.agent.label,
           }
         : undefined,
+      rulesContext: rulesContext || undefined,
     },
     createdAt: nowIso(),
   };
@@ -185,7 +232,18 @@ export async function playTurnStreaming(
   const aiMessages: GameMessage[] = [];
   const turnEvents: GameEvent[] = [];
   const toolResults: AiToolExecutionResult[] = [];
-  const hiddenRulesOutput = await runHiddenRulesJudgeTurn(baseDetail, action, settings);
+  const rulesContext = await buildRulesRagContext(
+    repository,
+    settings,
+    detail.campaign.rulesetId,
+    action,
+  );
+  const hiddenRulesOutput = await runHiddenRulesJudgeTurn(
+    baseDetail,
+    action,
+    settings,
+    rulesContext,
+  );
   if (hiddenRulesOutput?.content.trim()) {
     turnEvents.push({
       id: createId("evt"),
@@ -200,7 +258,11 @@ export async function playTurnStreaming(
     });
   }
 
-  for (const agent of getTurnAgents({ ...input, hiddenRulesAdvice: hiddenRulesOutput?.content })) {
+  for (const agent of getTurnAgents({
+    ...input,
+    hiddenRulesAdvice: hiddenRulesOutput?.content,
+    rulesContext,
+  })) {
     const agentNpc = findNpcForAgent(agent, baseDetail.npcs);
     const message: GameMessage = {
       id: createId("msg"),
@@ -218,10 +280,17 @@ export async function playTurnStreaming(
     const agentInput = {
       ...input,
       hiddenRulesAdvice: hiddenRulesOutput?.content,
+      rulesContext,
       npc: agentNpc,
       toolRuntime:
         agent.role === "GM"
-          ? createToolRuntime(repository, baseDetail, "gm", undefined, toolResults)
+          ? createToolRuntime(
+              repository,
+              baseDetail,
+              "gm",
+              undefined,
+              toolResults,
+            )
           : agentNpc
             ? createToolRuntime(
                 repository,
@@ -251,7 +320,10 @@ export async function playTurnStreaming(
         handlers.onMessageAppend?.(message);
       }
       await messageAppendPromise;
-      await repository.updateMessageContent(message.id, finalizedMessage.content);
+      await repository.updateMessageContent(
+        message.id,
+        finalizedMessage.content,
+      );
       aiMessages.push(finalizedMessage);
       if (agent.role === "GM") {
         const triggeredMessages = await handleGmMentions(
@@ -275,6 +347,35 @@ export async function playTurnStreaming(
             });
           }
         }
+      }
+    }
+  }
+
+  // 记录员在每轮最后执行，可以看到本回合所有输出
+  {
+    const archivistDetail: CampaignDetail = {
+      ...baseDetail,
+      messages: [...baseDetail.messages, ...aiMessages],
+    };
+    const archivistOutput = await runArchivistTurn(
+      archivistDetail,
+      action,
+      settings,
+      rulesContext,
+    );
+    if (archivistOutput) {
+      const archivistMessage: GameMessage = {
+        id: createId("msg"),
+        campaignId: detail.campaign.id,
+        sessionId: detail.session.id,
+        author: archivistOutput.role,
+        content: archivistOutput.content,
+        createdAt: nowIso(),
+      };
+      if (archivistMessage.content.trim()) {
+        await repository.appendMessage(archivistMessage);
+        handlers.onMessageAppend?.(archivistMessage);
+        aiMessages.push(archivistMessage);
       }
     }
   }
@@ -303,6 +404,7 @@ export async function playTurnStreaming(
             label: privateChat.agent.label,
           }
         : undefined,
+      rulesContext: rulesContext || undefined,
     },
     createdAt: nowIso(),
   };
@@ -333,11 +435,15 @@ export function summarizeSnapshot(
     .slice(0, 900);
 
   return {
-    summary: [detail.campaign.summary, lastAgentLines].filter(Boolean).join("\n\n").slice(-1600),
-    worldState: `最近更新于 ${nowIso()}。\n${lastAgentLines || detail.campaign.worldState}`.slice(
-      0,
-      1200,
-    ),
+    summary: [detail.campaign.summary, lastAgentLines]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(-1600),
+    worldState:
+      `最近更新于 ${nowIso()}。\n${lastAgentLines || detail.campaign.worldState}`.slice(
+        0,
+        1200,
+      ),
   };
 }
 
@@ -345,6 +451,7 @@ async function runHiddenRulesJudgeTurn(
   detail: CampaignDetail,
   playerAction: string,
   settings: AiSettings,
+  rulesContext = "",
 ): Promise<AiTurnOutput | undefined> {
   const rulesJudge = settings.agents.find(
     (agent) => agent.role === "RulesJudge" && agent.enabled,
@@ -352,7 +459,11 @@ async function runHiddenRulesJudgeTurn(
   if (!rulesJudge) {
     return undefined;
   }
-  const explicitTarget = resolvePrivateChatTarget(playerAction, settings, detail.npcs);
+  const explicitTarget = resolvePrivateChatTarget(
+    playerAction,
+    settings,
+    detail.npcs,
+  );
   if (explicitTarget?.agent.role === "RulesJudge") {
     return undefined;
   }
@@ -360,8 +471,33 @@ async function runHiddenRulesJudgeTurn(
     detail,
     playerAction,
     settings,
+    rulesContext,
   };
   const output = await runAiAgentTurn(rulesJudge, input);
+  return output.content.trim() ? output : undefined;
+}
+
+async function runArchivistTurn(
+  detail: CampaignDetail,
+  playerAction: string,
+  settings: AiSettings,
+  rulesContext = "",
+): Promise<AiTurnOutput | undefined> {
+  const archivist = getArchivistAgent({
+    detail,
+    playerAction,
+    settings,
+    rulesContext,
+  });
+  if (!archivist) {
+    return undefined;
+  }
+  const output = await runAiAgentTurn(archivist, {
+    detail,
+    playerAction,
+    settings,
+    rulesContext,
+  });
   return output.content.trim() ? output : undefined;
 }
 
@@ -384,7 +520,9 @@ function createToolRuntime(
     listNpcs: () => npcs,
     getNpc: (target) =>
       npcs.find((item) => item.id === target || item.name === target) ??
-      (npc && (target === "self" || target === npc.id || target === npc.name) ? npc : undefined),
+      (npc && (target === "self" || target === npc.id || target === npc.name)
+        ? npc
+        : undefined),
     saveNpc: async (updatedNpc) => {
       const index = npcs.findIndex((item) => item.id === updatedNpc.id);
       if (index >= 0) {
@@ -399,6 +537,8 @@ function createToolRuntime(
       detail.npcs.push(createdNpc);
       await repository.saveNpcCharacter(createdNpc);
     },
+    searchMessages: async (query, limit) =>
+      repository.searchMessages(detail.campaign.id, query, limit),
     onToolResult: toolResults
       ? (result) => {
           toolResults.push(result);
@@ -426,7 +566,8 @@ async function handleGmMentions(
   handlers: PlayTurnStreamHandlers,
 ): Promise<GameMessage[]> {
   const messages: GameMessage[] = [];
-  const mentionsPlayer = gmContent.includes("@玩家") || /@player\b/i.test(gmContent);
+  const mentionsPlayer =
+    gmContent.includes("@玩家") || /@player\b/i.test(gmContent);
   if (mentionsPlayer) {
     const message: GameMessage = {
       id: createId("msg"),
@@ -441,7 +582,9 @@ async function handleGmMentions(
     messages.push(message);
   }
 
-  const targetNpc = detail.npcs.find((npc) => gmContent.includes(`@${npc.name}`));
+  const targetNpc = detail.npcs.find((npc) =>
+    gmContent.includes(`@${npc.name}`),
+  );
   if (!targetNpc) {
     return messages;
   }
@@ -481,7 +624,13 @@ async function handleGmMentions(
     playerAction: `GM 指定 @${targetNpc.name} 立刻回应：${gmContent}`,
     settings,
     npc: targetNpc,
-    toolRuntime: createToolRuntime(repository, detail, "npc", targetNpc, toolResults),
+    toolRuntime: createToolRuntime(
+      repository,
+      detail,
+      "npc",
+      targetNpc,
+      toolResults,
+    ),
   };
   const output = await runAiAgentTurnStreaming(npcAgent, npcInput, () => {});
   if (!output.content.trim()) {

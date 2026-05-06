@@ -1,6 +1,7 @@
 import type {
   AiAgentConfig,
   AiProviderConfig,
+  AiRagSettings,
   AiRole,
   AiSettings,
   CampaignDetail,
@@ -72,6 +73,15 @@ export const defaultAiSettings: AiSettings = {
   providers: defaultProviders,
   defaultProviderId: "openai",
   agents: defaultAgents,
+  rag: {
+    enabled: true,
+    embeddingProviderId: "openai",
+    embeddingModel: "text-embedding-3-small",
+    rerankProviderId: "openai",
+    rerankModel: "",
+    topK: 4,
+    chunkSize: 900,
+  },
 };
 
 export interface AiTurnInput {
@@ -82,6 +92,7 @@ export interface AiTurnInput {
   npc?: NpcCharacter;
   toolRuntime?: AiToolRuntime;
   hiddenRulesAdvice?: string;
+  rulesContext?: string;
 }
 
 export interface AiTurnOutput {
@@ -129,6 +140,7 @@ export interface AiToolRuntime {
   getNpc(target: string): NpcCharacter | undefined;
   saveNpc(npc: NpcCharacter): Promise<void>;
   createNpc(npc: NpcCharacter): Promise<void>;
+  searchMessages?(query: string, limit?: number): Promise<GameMessage[]>;
   onToolResult?: (result: AiToolExecutionResult) => void;
 }
 
@@ -144,12 +156,14 @@ interface LegacyAiSettings {
   agents?: AiAgentConfig[];
   providers?: AiProviderConfig[];
   defaultProviderId?: string;
+  rag?: Partial<AiRagSettings>;
 }
 
-function recentMessages(messages: GameMessage[]): string[] {
-  return messages
-    .slice(-8)
-    .map((message) => `${message.authorLabel ?? message.author}: ${message.content}`);
+function recentMessages(messages: GameMessage[], max?: number): string[] {
+  const sliced = max && max > 0 ? messages.slice(-max) : messages;
+  return sliced.map(
+    (message) => `${message.authorLabel ?? message.author}: ${message.content}`,
+  );
 }
 
 export function buildAgentMessages(
@@ -158,7 +172,9 @@ export function buildAgentMessages(
 ): ChatMessage[] {
   const { campaign, character } = input.detail;
   const ruleset = getRuleset(campaign.rulesetId);
-  const recent = recentMessages(input.detail.messages);
+  const messageLimit =
+    input.settings.gmFullContext && agent.role === "GM" ? 0 : 8;
+  const recent = recentMessages(input.detail.messages, messageLimit);
   const npcs = input.detail.npcs ?? [];
   const npcLines = npcs.length
     ? npcs.map((npc) => `${npc.name}：${npc.concept}`).join("\n")
@@ -177,7 +193,9 @@ export function buildAgentMessages(
       ? `规则裁判建议（仅 GM 可见，不要逐字公开）：${input.hiddenRulesAdvice}`
       : "",
     `近期记录：${recent.join("\n") || "暂无"}`,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   const rolePrompt = buildRolePrompt(agent, input, sharedContext);
   const privateChatPrompt = input.privateChat
     ? [
@@ -273,7 +291,9 @@ function buildRolePrompt(
         character: input.detail.character,
         recentMessages: recentMessages(input.detail.messages),
       }),
-    ].filter(Boolean).join("\n\n");
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   if (agent.role === "Companion") {
@@ -297,8 +317,11 @@ function buildRolePrompt(
       "你的职责：只做规则裁判。只说明是否需要判定、建议使用的属性/技能、骰子表达式、成功区间和失败代价。",
       "禁止叙事描写、禁止添加新线索、禁止扮演 NPC、禁止推进场景。",
       "如果当前行动不需要规则解释或判定，返回空内容。",
+      input.rulesContext ? `规则书检索片段：\n${input.rulesContext}` : "",
       sharedContext,
-    ].join("\n\n");
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   return [
@@ -310,34 +333,41 @@ function buildRolePrompt(
 }
 
 export function normalizeAiSettings(raw: unknown): AiSettings {
-  const legacy = (typeof raw === "object" && raw ? raw : {}) as LegacyAiSettings;
+  const legacy = (
+    typeof raw === "object" && raw ? raw : {}
+  ) as LegacyAiSettings;
   const legacyProvider: AiProviderConfig = {
     ...defaultProviders[0],
     baseUrl: legacy.baseUrl || defaultProviders[0].baseUrl,
     apiKey: legacy.apiKey || "",
     defaultModel: legacy.defaultModel || defaultProviders[0].defaultModel,
     models: legacy.defaultModel
-      ? Array.from(new Set([legacy.defaultModel, ...defaultProviders[0].models]))
+      ? Array.from(
+          new Set([legacy.defaultModel, ...defaultProviders[0].models]),
+        )
       : defaultProviders[0].models,
   };
-  const providers =
-    legacy.providers?.length
-      ? legacy.providers.map((provider) => ({
-          ...provider,
-          models: provider.models ?? [],
-        }))
-      : [legacyProvider];
+  const providers = legacy.providers?.length
+    ? legacy.providers.map((provider) => ({
+        ...provider,
+        models: provider.models ?? [],
+      }))
+    : [legacyProvider];
   const defaultProviderId =
-    legacy.defaultProviderId && providers.some((item) => item.id === legacy.defaultProviderId)
+    legacy.defaultProviderId &&
+    providers.some((item) => item.id === legacy.defaultProviderId)
       ? legacy.defaultProviderId
-      : providers[0]?.id ?? defaultProviders[0].id;
+      : (providers[0]?.id ?? defaultProviders[0].id);
   const agents = defaultAgents.map((defaultAgent) => {
-    const saved = legacy.agents?.find((agent) => agent.role === defaultAgent.role);
+    const saved = legacy.agents?.find(
+      (agent) => agent.role === defaultAgent.role,
+    );
     return {
       ...defaultAgent,
       ...saved,
       providerId:
-        saved?.providerId && providers.some((provider) => provider.id === saved.providerId)
+        saved?.providerId &&
+        providers.some((provider) => provider.id === saved.providerId)
           ? saved.providerId
           : defaultProviderId,
     };
@@ -347,10 +377,41 @@ export function normalizeAiSettings(raw: unknown): AiSettings {
     providers,
     defaultProviderId,
     agents,
+    rag: normalizeRagSettings(legacy.rag, providers, defaultProviderId),
   };
 }
 
-function findProvider(settings: AiSettings, providerId?: string): AiProviderConfig {
+function normalizeRagSettings(
+  raw: Partial<AiRagSettings> | undefined,
+  providers: AiProviderConfig[],
+  defaultProviderId: string,
+): AiRagSettings {
+  const embeddingProviderId = providers.some(
+    (provider) => provider.id === raw?.embeddingProviderId,
+  )
+    ? raw?.embeddingProviderId
+    : defaultProviderId;
+  const rerankProviderId = providers.some(
+    (provider) => provider.id === raw?.rerankProviderId,
+  )
+    ? raw?.rerankProviderId
+    : embeddingProviderId;
+
+  return {
+    enabled: raw?.enabled ?? true,
+    embeddingProviderId,
+    embeddingModel: raw?.embeddingModel || "text-embedding-3-small",
+    rerankProviderId,
+    rerankModel: raw?.rerankModel ?? "",
+    topK: clampInteger(raw?.topK, 1, 12, 4),
+    chunkSize: clampInteger(raw?.chunkSize, 300, 2400, 900),
+  };
+}
+
+function findProvider(
+  settings: AiSettings,
+  providerId?: string,
+): AiProviderConfig {
   const provider =
     settings.providers.find((item) => item.id === providerId) ??
     settings.providers.find((item) => item.id === settings.defaultProviderId) ??
@@ -375,12 +436,110 @@ export function formatModelValue(providerId: string, model: string): string {
   return `${providerId}::${model}`;
 }
 
-export function parseModelValue(value: string): { providerId: string; model: string } {
+export function parseModelValue(value: string): {
+  providerId: string;
+  model: string;
+} {
   const [providerId, ...modelParts] = value.split("::");
   return {
     providerId,
     model: modelParts.join("::"),
   };
+}
+
+export async function generateEmbeddings(
+  settings: AiSettings,
+  input: string | string[],
+): Promise<number[][]> {
+  const provider = findProvider(settings, settings.rag.embeddingProviderId);
+  const model = settings.rag.embeddingModel.trim();
+  const inputs = Array.isArray(input) ? input : [input];
+  if (!model) {
+    throw new Error("请先在 AI 设置中配置 RAG Embedding 模型。");
+  }
+  if (!provider.apiKey.trim()) {
+    throw new Error(
+      `Provider「${provider.name}」未配置 API Key，无法生成规则书向量。`,
+    );
+  }
+
+  const response = await postChatCompletion(
+    `${provider.baseUrl.replace(/\/$/, "")}/embeddings`,
+    provider.apiKey,
+    {
+      model,
+      input: inputs,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Embedding 生成失败：${response.status} ${await response.text()}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    data?: Array<{ embedding?: number[] }>;
+    embeddings?: number[][];
+  };
+  const embeddings =
+    data.data?.map((item) => item.embedding ?? []) ?? data.embeddings ?? [];
+  if (
+    embeddings.length !== inputs.length ||
+    embeddings.some((item) => !item.length)
+  ) {
+    throw new Error("Embedding 接口没有返回完整向量。");
+  }
+  return embeddings;
+}
+
+export async function rerankDocuments(
+  settings: AiSettings,
+  query: string,
+  documents: string[],
+): Promise<Array<{ index: number; score: number }>> {
+  const model = settings.rag.rerankModel.trim();
+  if (!model || documents.length === 0) {
+    return documents.map((_document, index) => ({
+      index,
+      score: documents.length - index,
+    }));
+  }
+  const provider = findProvider(settings, settings.rag.rerankProviderId);
+  if (!provider.apiKey.trim()) {
+    throw new Error(
+      `Provider「${provider.name}」未配置 API Key，无法 rerank 规则书片段。`,
+    );
+  }
+
+  const response = await postChatCompletion(
+    `${provider.baseUrl.replace(/\/$/, "")}/rerank`,
+    provider.apiKey,
+    {
+      model,
+      query,
+      documents,
+      top_n: Math.min(settings.rag.topK, documents.length),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Rerank 失败：${response.status} ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as {
+    results?: Array<{
+      index?: number;
+      relevance_score?: number;
+      score?: number;
+    }>;
+    data?: Array<{ index?: number; relevance_score?: number; score?: number }>;
+  };
+  const results = data.results ?? data.data ?? [];
+  return results
+    .map((item) => ({
+      index: item.index ?? -1,
+      score: item.relevance_score ?? item.score ?? 0,
+    }))
+    .filter((item) => item.index >= 0 && item.index < documents.length);
 }
 
 export async function runAiAgentTurn(
@@ -412,7 +571,9 @@ export async function runAiAgentTurn(
   if (!response.ok) {
     const errorText = await response.text();
     if (tools.length && shouldReportToolSupportError(errorText)) {
-      throw new Error(`${provider.name} 不支持 OpenAI tools/tool_calls：${errorText}`);
+      throw new Error(
+        `${provider.name} 不支持 OpenAI tools/tool_calls：${errorText}`,
+      );
     }
     throw new Error(`${agent.label} 调用失败：${response.status} ${errorText}`);
   }
@@ -422,7 +583,9 @@ export async function runAiAgentTurn(
     messages.push({
       role: "assistant",
       content: data.content,
-      ...(data.reasoningContent ? { reasoning_content: data.reasoningContent } : {}),
+      ...(data.reasoningContent
+        ? { reasoning_content: data.reasoningContent }
+        : {}),
       tool_calls: data.toolCalls,
     });
     for (const toolCall of data.toolCalls) {
@@ -442,7 +605,9 @@ export async function runAiAgentTurn(
       tool_choice: "auto",
     });
     if (!response.ok) {
-      throw new Error(`${agent.label} 工具调用后生成回复失败：${response.status} ${await response.text()}`);
+      throw new Error(
+        `${agent.label} 工具调用后生成回复失败：${response.status} ${await response.text()}`,
+      );
     }
     data = await readChatCompletionResponse(response);
   }
@@ -484,19 +649,22 @@ export async function runAiAgentTurnStreaming(
     };
   }
 
-  const response = await fetch(`${provider.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${provider.apiKey}`,
+  const response = await fetch(
+    `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${provider.apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: buildAgentMessages(agent, input),
+        temperature: agent.role === "RulesJudge" ? 0.3 : 0.8,
+        stream: true,
+      }),
     },
-    body: JSON.stringify({
-      model,
-      messages: buildAgentMessages(agent, input),
-      temperature: agent.role === "RulesJudge" ? 0.3 : 0.8,
-      stream: true,
-    }),
-  });
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -544,13 +712,28 @@ export function getTurnAgents(input: AiTurnInput): AiAgentConfig[] {
       (agent) =>
         agent.enabled &&
         agent.role !== "Companion" &&
-        agent.role !== "RulesJudge",
+        agent.role !== "RulesJudge" &&
+        agent.role !== "Archivist",
     ),
     ...npcTurnAgents(input.detail.npcs ?? [], input.settings),
   ];
 }
 
-function npcTurnAgents(npcs: NpcCharacter[], settings: AiSettings): AiAgentConfig[] {
+export function getArchivistAgent(
+  input: AiTurnInput,
+): AiAgentConfig | undefined {
+  if (input.privateChat) {
+    return undefined;
+  }
+  return input.settings.agents.find(
+    (agent) => agent.role === "Archivist" && agent.enabled,
+  );
+}
+
+function npcTurnAgents(
+  npcs: NpcCharacter[],
+  settings: AiSettings,
+): AiAgentConfig[] {
   return npcs
     .filter((npc) => npc.isActive)
     .map((npc) => ({
@@ -573,10 +756,9 @@ function privateChatAgents(
         agent.role === targetAgent.role &&
         agent.label === targetAgent.label &&
         agent.enabled,
-    ) ??
-    (targetAgent.enabled ? targetAgent : undefined);
-  const participants = [gm, target].filter(
-    (agent): agent is AiAgentConfig => Boolean(agent),
+    ) ?? (targetAgent.enabled ? targetAgent : undefined);
+  const participants = [gm, target].filter((agent): agent is AiAgentConfig =>
+    Boolean(agent),
   );
   return participants.filter(
     (agent, index, list) =>
@@ -612,22 +794,30 @@ export function resolvePrivateChatTarget(
     .filter((item) => item.enabled)
     .find((item) => item.label === raw || item.role === raw);
   if (!agent) {
-    throw new Error(`「${raw}」不是当前可交流对象。可用对象：${communicableNames(settings, npcs).join("、")}`);
+    throw new Error(
+      `「${raw}」不是当前可交流对象。可用对象：${communicableNames(settings, npcs).join("、")}`,
+    );
   }
 
   return { raw, agent };
 }
 
-function communicableNames(settings: AiSettings, npcs: NpcCharacter[] = []): string[] {
+function communicableNames(
+  settings: AiSettings,
+  npcs: NpcCharacter[] = [],
+): string[] {
   return [
     ...settings.agents
-    .filter((agent) => agent.enabled)
-    .map((agent) => agent.label),
+      .filter((agent) => agent.enabled)
+      .map((agent) => agent.label),
     ...npcs.map((npc) => npc.name),
   ];
 }
 
-function buildToolsForTurn(agent: AiAgentConfig, input: AiTurnInput): ChatCompletionTool[] {
+function buildToolsForTurn(
+  agent: AiAgentConfig,
+  input: AiTurnInput,
+): ChatCompletionTool[] {
   if (!input.toolRuntime) {
     return [];
   }
@@ -642,6 +832,7 @@ function buildToolsForTurn(agent: AiAgentConfig, input: AiTurnInput): ChatComple
     getCharacterCardTool(),
     updateCharacterCardTool(),
     createNpcTool(),
+    searchRecordsTool(),
   ];
 }
 
@@ -650,7 +841,8 @@ function rollDiceTool(): ChatCompletionTool {
     type: "function",
     function: {
       name: "roll_dice",
-      description: "Roll a number of same-sided dice and return every point plus the total.",
+      description:
+        "Roll a number of same-sided dice and return every point plus the total.",
       parameters: {
         type: "object",
         properties: {
@@ -669,11 +861,15 @@ function getCharacterCardTool(): ChatCompletionTool {
     type: "function",
     function: {
       name: "get_character_card",
-      description: "Read the player card, a named NPC card, or the current NPC's own card.",
+      description:
+        "Read the player card, a named NPC card, or the current NPC's own card.",
       parameters: {
         type: "object",
         properties: {
-          target: { type: "string", description: "player, self, or an NPC name/id" },
+          target: {
+            type: "string",
+            description: "player, self, or an NPC name/id",
+          },
         },
         required: ["target"],
         additionalProperties: false,
@@ -687,7 +883,8 @@ function updateCharacterCardTool(): ChatCompletionTool {
     type: "function",
     function: {
       name: "update_character_card",
-      description: "Update the player or NPC character card with a partial patch.",
+      description:
+        "Update the player or NPC character card with a partial patch.",
       parameters: {
         type: "object",
         properties: {
@@ -706,7 +903,8 @@ function createNpcTool(): ChatCompletionTool {
     type: "function",
     function: {
       name: "create_npc",
-      description: "Create a persistent NPC character for the current campaign.",
+      description:
+        "Create a persistent NPC character for the current campaign.",
       parameters: {
         type: "object",
         properties: {
@@ -720,6 +918,34 @@ function createNpcTool(): ChatCompletionTool {
           },
           card: { type: "object" },
         },
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+function searchRecordsTool(): ChatCompletionTool {
+  return {
+    type: "function",
+    function: {
+      name: "search_records",
+      description:
+        "Search past game messages/records by keyword. Returns matching messages sorted by recency.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Keyword or phrase to search for in past records",
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+            description: "Max number of results (default 5)",
+          },
+        },
+        required: ["query"],
         additionalProperties: false,
       },
     },
@@ -740,22 +966,38 @@ async function executeAiTool(
     assertGmTool(runtime, toolCall.function.name);
     const sides = clampInteger(args.sides, 2, 100, 20);
     const count = clampInteger(args.count, 1, 20, 1);
-    const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1);
+    const rolls = Array.from(
+      { length: count },
+      () => Math.floor(Math.random() * sides) + 1,
+    );
     result = {
       expression: `${count}d${sides}`,
       rolls,
       total: rolls.reduce((sum, value) => sum + value, 0),
     };
   } else if (toolCall.function.name === "get_character_card") {
-    result = resolveCharacterTarget(String(args.target ?? "self"), input, runtime);
+    result = resolveCharacterTarget(
+      String(args.target ?? "self"),
+      input,
+      runtime,
+    );
   } else if (toolCall.function.name === "update_character_card") {
     assertGmTool(runtime, toolCall.function.name);
     const target = String(args.target ?? "");
-    const patch = typeof args.patch === "object" && args.patch ? args.patch : {};
-    result = await updateCharacterTarget(target, patch as Partial<CharacterCard>, input, runtime);
+    const patch =
+      typeof args.patch === "object" && args.patch ? args.patch : {};
+    result = await updateCharacterTarget(
+      target,
+      patch as Partial<CharacterCard>,
+      input,
+      runtime,
+    );
   } else if (toolCall.function.name === "create_npc") {
     assertGmTool(runtime, toolCall.function.name);
     result = await createNpcFromTool(args, input, runtime);
+  } else if (toolCall.function.name === "search_records") {
+    assertGmTool(runtime, toolCall.function.name);
+    result = await searchRecords(args, runtime);
   } else {
     throw new Error(`未知 AI 工具：${toolCall.function.name}`);
   }
@@ -777,7 +1019,12 @@ function assertGmTool(runtime: AiToolRuntime, toolName: string): void {
   }
 }
 
-function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
+function clampInteger(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
   const number = Number(value);
   if (!Number.isInteger(number)) {
     return fallback;
@@ -792,7 +1039,11 @@ function resolveCharacterTarget(
 ): CharacterCard | NpcCharacter | undefined {
   const normalized = target.trim().toLowerCase();
   if (runtime.mode === "npc") {
-    if (normalized && normalized !== "self" && normalized !== input.npc?.id.toLowerCase()) {
+    if (
+      normalized &&
+      normalized !== "self" &&
+      normalized !== input.npc?.id.toLowerCase()
+    ) {
       throw new Error("NPC 只能检查自己的角色卡。");
     }
     return input.npc;
@@ -813,7 +1064,10 @@ async function updateCharacterTarget(
   if (!current) {
     throw new Error(`找不到角色卡：${target}`);
   }
-  const normalized = normalizeGeneratedCharacter({ ...current, ...patch }, current.rulesetId);
+  const normalized = normalizeGeneratedCharacter(
+    { ...current, ...patch },
+    current.rulesetId,
+  );
   if ("kind" in current && current.kind === "npc") {
     const updated: NpcCharacter = {
       ...current,
@@ -866,11 +1120,39 @@ async function createNpcFromTool(
     createdBy: "GM",
     avatarUrl:
       card.avatarUrl ??
-      DEFAULT_NPC_AVATARS[input.detail.npcs.length % DEFAULT_NPC_AVATARS.length],
+      DEFAULT_NPC_AVATARS[
+        input.detail.npcs.length % DEFAULT_NPC_AVATARS.length
+      ],
     updatedAt: nowIso(),
   };
   await runtime.createNpc(npc);
   return npc;
+}
+
+async function searchRecords(
+  args: Record<string, unknown>,
+  runtime: AiToolRuntime,
+): Promise<{
+  query: string;
+  results: Array<{ author: string; content: string; createdAt: string }>;
+}> {
+  const query = String(args.query ?? "").trim();
+  if (!query) {
+    throw new Error("search_records 需要提供 query 参数。");
+  }
+  if (!runtime.searchMessages) {
+    throw new Error("当前环境不支持搜索记录。");
+  }
+  const limit = clampInteger(args.limit, 1, 20, 5);
+  const messages = await runtime.searchMessages(query, limit);
+  return {
+    query,
+    results: messages.map((message) => ({
+      author: message.authorLabel ?? message.author,
+      content: message.content.slice(0, 500),
+      createdAt: message.createdAt,
+    })),
+  };
 }
 
 export async function generateCharacterWithAi(
@@ -925,7 +1207,10 @@ export async function generateCharacterWithAi(
     throw new Error("角色卡生成没有返回内容。");
   }
 
-  return normalizeGeneratedCharacter(extractGeneratedCharacter(parseJsonObject(content)), rulesetId);
+  return normalizeGeneratedCharacter(
+    extractGeneratedCharacter(parseJsonObject(content)),
+    rulesetId,
+  );
 }
 
 export async function generateProxyActionOptions(
@@ -941,7 +1226,7 @@ export async function generateProxyActionOptions(
     `世界状态：${detail.campaign.worldState}`,
     `角色：${detail.character?.name ?? "未绑定角色"} - ${detail.character?.concept ?? ""}`,
     `最近消息：${recentMessages(detail.messages).join("\n") || "暂无"}`,
-    "请输出 4 个中文行动选项。只返回 JSON：{\"options\":[\"...\"]}。",
+    '请输出 4 个中文行动选项。只返回 JSON：{"options":["..."]}。',
   ].join("\n");
 
   if (!provider.apiKey.trim()) {
@@ -1004,7 +1289,13 @@ function extractGeneratedCharacter(raw: unknown): unknown {
     return raw;
   }
   const record = raw as Record<string, unknown>;
-  return record.character ?? record.card ?? record.characterCard ?? record.data ?? raw;
+  return (
+    record.character ??
+    record.card ??
+    record.characterCard ??
+    record.data ??
+    raw
+  );
 }
 
 async function postChatCompletion(
@@ -1051,7 +1342,11 @@ async function postJsonModeChatCompletion<
 
 async function readChatCompletionResponse(
   response: Response,
-): Promise<{ content: string; reasoningContent: string; toolCalls: ChatCompletionToolCall[] }> {
+): Promise<{
+  content: string;
+  reasoningContent: string;
+  toolCalls: ChatCompletionToolCall[];
+}> {
   const data = (await response.json()) as {
     choices?: Array<{
       message?: {
@@ -1089,7 +1384,9 @@ function shouldReportToolSupportError(errorText: string): boolean {
   );
 }
 
-async function* readChatCompletionStream(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+async function* readChatCompletionStream(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -1134,7 +1431,10 @@ function parseStreamLine(line: string): string {
 
   try {
     const parsed = JSON.parse(data) as {
-      choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+      choices?: Array<{
+        delta?: { content?: string };
+        message?: { content?: string };
+      }>;
     };
     return (
       parsed.choices?.[0]?.delta?.content ??
@@ -1153,14 +1453,19 @@ export async function fetchProviderModels(
     throw new Error(`Provider「${provider.name}」缺少 API Key。`);
   }
 
-  const response = await fetch(`${provider.baseUrl.replace(/\/$/, "")}/models`, {
-    headers: {
-      authorization: `Bearer ${provider.apiKey}`,
+  const response = await fetch(
+    `${provider.baseUrl.replace(/\/$/, "")}/models`,
+    {
+      headers: {
+        authorization: `Bearer ${provider.apiKey}`,
+      },
     },
-  });
+  );
 
   if (!response.ok) {
-    throw new Error(`获取 ${provider.name} 模型失败：${response.status} ${await response.text()}`);
+    throw new Error(
+      `获取 ${provider.name} 模型失败：${response.status} ${await response.text()}`,
+    );
   }
 
   const data = (await response.json()) as { data?: Array<{ id?: string }> };
@@ -1192,7 +1497,9 @@ function parseJsonObject(content: string): unknown {
       try {
         return JSON.parse(withoutFence.slice(start, end + 1));
       } catch {
-        throw new Error(`AI 返回的角色卡不是有效 JSON：${trimmed.slice(0, 120)}`);
+        throw new Error(
+          `AI 返回的角色卡不是有效 JSON：${trimmed.slice(0, 120)}`,
+        );
       }
     }
     throw new Error(`AI 返回的角色卡不是有效 JSON：${trimmed.slice(0, 120)}`);

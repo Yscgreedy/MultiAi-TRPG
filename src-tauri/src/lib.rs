@@ -246,6 +246,46 @@ fn migrations() -> Vec<Migration> {
             sql: "ALTER TABLE messages ADD COLUMN actor_id TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 21,
+            description: "create_rulebook_documents",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS rulebook_documents (
+                id TEXT PRIMARY KEY,
+                ruleset_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                chunk_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 22,
+            description: "create_rulebook_chunks",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS rulebook_chunks (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                ruleset_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                embedding TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(document_id) REFERENCES rulebook_documents(id) ON DELETE CASCADE
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 23,
+            description: "index_rulebook_chunks_ruleset",
+            sql: "CREATE INDEX IF NOT EXISTS idx_rulebook_chunks_ruleset ON rulebook_chunks(ruleset_id, document_id, chunk_index);",
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

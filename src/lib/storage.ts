@@ -13,6 +13,8 @@ import type {
   GameMessage,
   GameSession,
   NpcCharacter,
+  RulebookChunk,
+  RulebookDocument,
 } from "@/types";
 
 const DB_URL = "sqlite:multi-ai-trpg.db";
@@ -34,8 +36,18 @@ export interface GameRepository {
     characterId: string,
     campaign: Pick<Campaign, "id" | "title">,
   ): Promise<void>;
-  releaseLibraryCharacter(characterId: string, campaignId?: string): Promise<void>;
+  releaseLibraryCharacter(
+    characterId: string,
+    campaignId?: string,
+  ): Promise<void>;
   releaseLibraryCharactersLockedByCampaign(campaignId: string): Promise<void>;
+  listRulebookDocuments(rulesetId?: string): Promise<RulebookDocument[]>;
+  saveRulebookDocument(
+    document: RulebookDocument,
+    chunks: RulebookChunk[],
+  ): Promise<void>;
+  deleteRulebookDocument(documentId: string): Promise<void>;
+  listRulebookChunks(rulesetId: string): Promise<RulebookChunk[]>;
   listCampaigns(): Promise<Campaign[]>;
   createCampaign(input: {
     title: string;
@@ -52,6 +64,11 @@ export interface GameRepository {
   deleteNpcCharacter(npcId: string): Promise<void>;
   appendMessage(message: GameMessage): Promise<void>;
   updateMessageContent(messageId: string, content: string): Promise<void>;
+  searchMessages(
+    campaignId: string,
+    query: string,
+    limit?: number,
+  ): Promise<GameMessage[]>;
   appendEvent(event: GameEvent): Promise<void>;
   updateCampaignSnapshot(
     campaignId: string,
@@ -66,6 +83,8 @@ interface BrowserStore {
   sessions: GameSession[];
   characters: CharacterCard[];
   npcCharacters: NpcCharacter[];
+  rulebookDocuments: RulebookDocument[];
+  rulebookChunks: RulebookChunk[];
   messages: GameMessage[];
   events: GameEvent[];
 }
@@ -94,6 +113,8 @@ function emptyStore(): BrowserStore {
     sessions: [],
     characters: [],
     npcCharacters: [],
+    rulebookDocuments: [],
+    rulebookChunks: [],
     messages: [],
     events: [],
   };
@@ -103,10 +124,15 @@ export class BrowserRepository implements GameRepository {
   private store = emptyStore();
 
   async init(): Promise<void> {
-    this.store = parseJson(localStorage.getItem(BROWSER_STORE_KEY), emptyStore());
+    this.store = parseJson(
+      localStorage.getItem(BROWSER_STORE_KEY),
+      emptyStore(),
+    );
     this.store.settings = normalizeAiSettings(this.store.settings);
     this.store.libraryCharacters = this.store.libraryCharacters ?? [];
     this.store.npcCharacters = this.store.npcCharacters ?? [];
+    this.store.rulebookDocuments = this.store.rulebookDocuments ?? [];
+    this.store.rulebookChunks = this.store.rulebookChunks ?? [];
     this.persist();
   }
 
@@ -119,7 +145,9 @@ export class BrowserRepository implements GameRepository {
     this.persist();
   }
 
-  async listLibraryCharacters(rulesetId?: string): Promise<CharacterLibraryEntry[]> {
+  async listLibraryCharacters(
+    rulesetId?: string,
+  ): Promise<CharacterLibraryEntry[]> {
     return this.store.libraryCharacters
       .filter((character) => !rulesetId || character.rulesetId === rulesetId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -138,7 +166,9 @@ export class BrowserRepository implements GameRepository {
   }
 
   async deleteLibraryCharacter(characterId: string): Promise<void> {
-    const character = this.store.libraryCharacters.find((item) => item.id === characterId);
+    const character = this.store.libraryCharacters.find(
+      (item) => item.id === characterId,
+    );
     if (character?.lockedByCampaignId) {
       throw new Error("角色卡正在战役中使用，删除对应战役后才能删除。");
     }
@@ -153,53 +183,103 @@ export class BrowserRepository implements GameRepository {
     campaign: Pick<Campaign, "id" | "title">,
   ): Promise<void> {
     const timestamp = nowIso();
-    this.store.libraryCharacters = this.store.libraryCharacters.map((character) => {
-      if (character.id !== characterId) {
-        return character;
-      }
-      if (
-        character.lockedByCampaignId &&
-        character.lockedByCampaignId !== campaign.id
-      ) {
-        throw new Error("该角色卡已经加入其他战役，不能重复使用。");
-      }
-      return {
-        ...character,
-        lockedByCampaignId: campaign.id,
-        lockedByCampaignTitle: campaign.title,
-        lockedAt: timestamp,
-        updatedAt: timestamp,
-      };
-    });
+    this.store.libraryCharacters = this.store.libraryCharacters.map(
+      (character) => {
+        if (character.id !== characterId) {
+          return character;
+        }
+        if (
+          character.lockedByCampaignId &&
+          character.lockedByCampaignId !== campaign.id
+        ) {
+          throw new Error("该角色卡已经加入其他战役，不能重复使用。");
+        }
+        return {
+          ...character,
+          lockedByCampaignId: campaign.id,
+          lockedByCampaignTitle: campaign.title,
+          lockedAt: timestamp,
+          updatedAt: timestamp,
+        };
+      },
+    );
     this.persist();
   }
 
-  async releaseLibraryCharacter(characterId: string, campaignId?: string): Promise<void> {
-    this.store.libraryCharacters = this.store.libraryCharacters.map((character) => {
-      if (character.id !== characterId) {
-        return character;
-      }
-      if (campaignId && character.lockedByCampaignId !== campaignId) {
-        return character;
-      }
-      const released = withoutLibraryLock(character);
-      return { ...released, updatedAt: nowIso() };
-    });
+  async releaseLibraryCharacter(
+    characterId: string,
+    campaignId?: string,
+  ): Promise<void> {
+    this.store.libraryCharacters = this.store.libraryCharacters.map(
+      (character) => {
+        if (character.id !== characterId) {
+          return character;
+        }
+        if (campaignId && character.lockedByCampaignId !== campaignId) {
+          return character;
+        }
+        const released = withoutLibraryLock(character);
+        return { ...released, updatedAt: nowIso() };
+      },
+    );
     this.persist();
   }
 
-  async releaseLibraryCharactersLockedByCampaign(campaignId: string): Promise<void> {
+  async releaseLibraryCharactersLockedByCampaign(
+    campaignId: string,
+  ): Promise<void> {
     let changed = false;
-    this.store.libraryCharacters = this.store.libraryCharacters.map((character) => {
-      if (character.lockedByCampaignId !== campaignId) {
-        return character;
-      }
-      changed = true;
-      return { ...withoutLibraryLock(character), updatedAt: nowIso() };
-    });
+    this.store.libraryCharacters = this.store.libraryCharacters.map(
+      (character) => {
+        if (character.lockedByCampaignId !== campaignId) {
+          return character;
+        }
+        changed = true;
+        return { ...withoutLibraryLock(character), updatedAt: nowIso() };
+      },
+    );
     if (changed) {
       this.persist();
     }
+  }
+
+  async listRulebookDocuments(rulesetId?: string): Promise<RulebookDocument[]> {
+    return this.store.rulebookDocuments
+      .filter((document) => !rulesetId || document.rulesetId === rulesetId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async saveRulebookDocument(
+    document: RulebookDocument,
+    chunks: RulebookChunk[],
+  ): Promise<void> {
+    this.store.rulebookDocuments = [
+      document,
+      ...this.store.rulebookDocuments.filter((item) => item.id !== document.id),
+    ];
+    this.store.rulebookChunks = [
+      ...this.store.rulebookChunks.filter(
+        (chunk) => chunk.documentId !== document.id,
+      ),
+      ...chunks,
+    ];
+    this.persist();
+  }
+
+  async deleteRulebookDocument(documentId: string): Promise<void> {
+    this.store.rulebookDocuments = this.store.rulebookDocuments.filter(
+      (document) => document.id !== documentId,
+    );
+    this.store.rulebookChunks = this.store.rulebookChunks.filter(
+      (chunk) => chunk.documentId !== documentId,
+    );
+    this.persist();
+  }
+
+  async listRulebookChunks(rulesetId: string): Promise<RulebookChunk[]> {
+    return this.store.rulebookChunks
+      .filter((chunk) => chunk.rulesetId === rulesetId)
+      .sort((a, b) => a.chunkIndex - b.chunkIndex);
   }
 
   async listCampaigns(): Promise<Campaign[]> {
@@ -246,7 +326,11 @@ export class BrowserRepository implements GameRepository {
       content: `战役创建：${campaign.premise}`,
       createdAt: timestamp,
     };
-    const companion = createDefaultCompanion(campaign.id, input.rulesetId, timestamp);
+    const companion = createDefaultCompanion(
+      campaign.id,
+      input.rulesetId,
+      timestamp,
+    );
 
     this.store.campaigns.unshift(campaign);
     this.store.sessions.unshift(session);
@@ -258,31 +342,57 @@ export class BrowserRepository implements GameRepository {
     }
     this.persist();
 
-    return { campaign, session, character, npcs: [companion], messages: [message], events: [] };
+    return {
+      campaign,
+      session,
+      character,
+      npcs: [companion],
+      messages: [message],
+      events: [],
+    };
   }
 
   async deleteCampaign(campaignId: string): Promise<void> {
-    const campaign = this.store.campaigns.find((item) => item.id === campaignId);
-    this.store.campaigns = this.store.campaigns.filter((item) => item.id !== campaignId);
-    this.store.sessions = this.store.sessions.filter((item) => item.campaignId !== campaignId);
+    const campaign = this.store.campaigns.find(
+      (item) => item.id === campaignId,
+    );
+    this.store.campaigns = this.store.campaigns.filter(
+      (item) => item.id !== campaignId,
+    );
+    this.store.sessions = this.store.sessions.filter(
+      (item) => item.campaignId !== campaignId,
+    );
     this.store.npcCharacters = this.store.npcCharacters.filter(
       (item) => item.campaignId !== campaignId,
     );
     this.store.characters = this.store.characters.filter(
       (item) => item.id !== campaign?.activeCharacterId,
     );
-    this.store.messages = this.store.messages.filter((item) => item.campaignId !== campaignId);
-    this.store.events = this.store.events.filter((item) => item.campaignId !== campaignId);
+    this.store.messages = this.store.messages.filter(
+      (item) => item.campaignId !== campaignId,
+    );
+    this.store.events = this.store.events.filter(
+      (item) => item.campaignId !== campaignId,
+    );
     if (campaign?.sourceCharacterId) {
-      await this.releaseLibraryCharacter(campaign.sourceCharacterId, campaignId);
+      await this.releaseLibraryCharacter(
+        campaign.sourceCharacterId,
+        campaignId,
+      );
     }
     await this.releaseLibraryCharactersLockedByCampaign(campaignId);
     this.persist();
   }
 
-  async getCampaignDetail(campaignId: string): Promise<CampaignDetail | undefined> {
-    const campaign = this.store.campaigns.find((item) => item.id === campaignId);
-    const session = this.store.sessions.find((item) => item.campaignId === campaignId);
+  async getCampaignDetail(
+    campaignId: string,
+  ): Promise<CampaignDetail | undefined> {
+    const campaign = this.store.campaigns.find(
+      (item) => item.id === campaignId,
+    );
+    const session = this.store.sessions.find(
+      (item) => item.campaignId === campaignId,
+    );
 
     if (!campaign || !session) {
       return undefined;
@@ -297,12 +407,19 @@ export class BrowserRepository implements GameRepository {
       npcs: this.store.npcCharacters
         .filter((item) => item.campaignId === campaignId && item.isActive)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-      messages: this.store.messages.filter((item) => item.campaignId === campaignId),
-      events: this.store.events.filter((item) => item.campaignId === campaignId),
+      messages: this.store.messages.filter(
+        (item) => item.campaignId === campaignId,
+      ),
+      events: this.store.events.filter(
+        (item) => item.campaignId === campaignId,
+      ),
     };
   }
 
-  async saveCharacter(campaignId: string, character: CharacterCard): Promise<void> {
+  async saveCharacter(
+    campaignId: string,
+    character: CharacterCard,
+  ): Promise<void> {
     const existingIndex = this.store.characters.findIndex(
       (item) => item.id === character.id,
     );
@@ -327,7 +444,9 @@ export class BrowserRepository implements GameRepository {
   }
 
   async saveNpcCharacter(npc: NpcCharacter): Promise<void> {
-    const existingIndex = this.store.npcCharacters.findIndex((item) => item.id === npc.id);
+    const existingIndex = this.store.npcCharacters.findIndex(
+      (item) => item.id === npc.id,
+    );
     if (existingIndex >= 0) {
       this.store.npcCharacters[existingIndex] = npc;
     } else {
@@ -338,7 +457,9 @@ export class BrowserRepository implements GameRepository {
 
   async deleteNpcCharacter(npcId: string): Promise<void> {
     const npc = this.store.npcCharacters.find((item) => item.id === npcId);
-    this.store.npcCharacters = this.store.npcCharacters.filter((item) => item.id !== npcId);
+    this.store.npcCharacters = this.store.npcCharacters.filter(
+      (item) => item.id !== npcId,
+    );
     if (npc) {
       this.touchCampaign(npc.campaignId);
     } else {
@@ -351,7 +472,10 @@ export class BrowserRepository implements GameRepository {
     this.touchCampaign(message.campaignId);
   }
 
-  async updateMessageContent(messageId: string, content: string): Promise<void> {
+  async updateMessageContent(
+    messageId: string,
+    content: string,
+  ): Promise<void> {
     let campaignId: string | undefined;
     this.store.messages = this.store.messages.map((message) => {
       if (message.id !== messageId) {
@@ -365,6 +489,22 @@ export class BrowserRepository implements GameRepository {
     } else {
       this.persist();
     }
+  }
+
+  async searchMessages(
+    campaignId: string,
+    query: string,
+    limit = 10,
+  ): Promise<GameMessage[]> {
+    const lowerQuery = query.toLowerCase();
+    return this.store.messages
+      .filter(
+        (message) =>
+          message.campaignId === campaignId &&
+          message.content.toLowerCase().includes(lowerQuery),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
   }
 
   async appendEvent(event: GameEvent): Promise<void> {
@@ -386,7 +526,9 @@ export class BrowserRepository implements GameRepository {
 
   private touchCampaign(campaignId: string): void {
     this.store.campaigns = this.store.campaigns.map((campaign) =>
-      campaign.id === campaignId ? { ...campaign, updatedAt: nowIso() } : campaign,
+      campaign.id === campaignId
+        ? { ...campaign, updatedAt: nowIso() }
+        : campaign,
     );
     this.persist();
   }
@@ -425,7 +567,9 @@ export class SqliteRepository implements GameRepository {
     );
   }
 
-  async listLibraryCharacters(rulesetId?: string): Promise<CharacterLibraryEntry[]> {
+  async listLibraryCharacters(
+    rulesetId?: string,
+  ): Promise<CharacterLibraryEntry[]> {
     const rows = await this.select<CharacterLibraryRow>(
       rulesetId
         ? "SELECT * FROM character_library WHERE ruleset_id = $1 ORDER BY updated_at DESC"
@@ -465,7 +609,9 @@ export class SqliteRepository implements GameRepository {
     if (rows[0]?.locked) {
       throw new Error("角色卡正在战役中使用，删除对应战役后才能删除。");
     }
-    await this.execute("DELETE FROM character_library WHERE id = $1", [characterId]);
+    await this.execute("DELETE FROM character_library WHERE id = $1", [
+      characterId,
+    ]);
   }
 
   async lockLibraryCharacter(
@@ -496,7 +642,10 @@ export class SqliteRepository implements GameRepository {
     });
   }
 
-  async releaseLibraryCharacter(characterId: string, campaignId?: string): Promise<void> {
+  async releaseLibraryCharacter(
+    characterId: string,
+    campaignId?: string,
+  ): Promise<void> {
     const rows = await this.select<CharacterLibraryRow>(
       "SELECT data FROM character_library WHERE id = $1 LIMIT 1",
       [characterId],
@@ -512,7 +661,9 @@ export class SqliteRepository implements GameRepository {
     await this.saveLibraryCharacter({ ...released, updatedAt: nowIso() });
   }
 
-  async releaseLibraryCharactersLockedByCampaign(campaignId: string): Promise<void> {
+  async releaseLibraryCharactersLockedByCampaign(
+    campaignId: string,
+  ): Promise<void> {
     const rows = await this.select<CharacterLibraryRow>(
       "SELECT data FROM character_library ORDER BY updated_at DESC",
     );
@@ -527,6 +678,80 @@ export class SqliteRepository implements GameRepository {
           }),
         ),
     );
+  }
+
+  async listRulebookDocuments(rulesetId?: string): Promise<RulebookDocument[]> {
+    const rows = await this.select<RulebookDocumentRow>(
+      rulesetId
+        ? "SELECT * FROM rulebook_documents WHERE ruleset_id = $1 ORDER BY updated_at DESC"
+        : "SELECT * FROM rulebook_documents ORDER BY updated_at DESC",
+      rulesetId ? [rulesetId] : undefined,
+    );
+    return rows.map(rulebookDocumentFromRow);
+  }
+
+  async saveRulebookDocument(
+    document: RulebookDocument,
+    chunks: RulebookChunk[],
+  ): Promise<void> {
+    await this.execute(
+      `INSERT INTO rulebook_documents
+       (id, ruleset_id, title, source_name, content, chunk_count, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT(id) DO UPDATE SET
+       ruleset_id = excluded.ruleset_id,
+       title = excluded.title,
+       source_name = excluded.source_name,
+       content = excluded.content,
+       chunk_count = excluded.chunk_count,
+       updated_at = excluded.updated_at`,
+      [
+        document.id,
+        document.rulesetId,
+        document.title,
+        document.sourceName,
+        document.content,
+        document.chunkCount,
+        document.createdAt,
+        document.updatedAt,
+      ],
+    );
+    await this.execute("DELETE FROM rulebook_chunks WHERE document_id = $1", [
+      document.id,
+    ]);
+    for (const chunk of chunks) {
+      await this.execute(
+        `INSERT INTO rulebook_chunks
+         (id, document_id, ruleset_id, chunk_index, content, embedding, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [
+          chunk.id,
+          chunk.documentId,
+          chunk.rulesetId,
+          chunk.chunkIndex,
+          chunk.content,
+          JSON.stringify(chunk.embedding),
+          chunk.createdAt,
+        ],
+      );
+    }
+  }
+
+  async deleteRulebookDocument(documentId: string): Promise<void> {
+    await this.execute("DELETE FROM rulebook_chunks WHERE document_id = $1", [
+      documentId,
+    ]);
+    await this.execute("DELETE FROM rulebook_documents WHERE id = $1", [
+      documentId,
+    ]);
+  }
+
+  async listRulebookChunks(rulesetId: string): Promise<RulebookChunk[]> {
+    const rows = await this.select<RulebookChunkRow>(
+      "SELECT * FROM rulebook_chunks WHERE ruleset_id = $1 ORDER BY document_id, chunk_index ASC",
+      [rulesetId],
+    );
+    return rows.map(rulebookChunkFromRow);
   }
 
   async listCampaigns(): Promise<Campaign[]> {
@@ -574,7 +799,11 @@ export class SqliteRepository implements GameRepository {
       content: `战役创建：${campaign.premise}`,
       createdAt: timestamp,
     };
-    const companion = createDefaultCompanion(campaign.id, input.rulesetId, timestamp);
+    const companion = createDefaultCompanion(
+      campaign.id,
+      input.rulesetId,
+      timestamp,
+    );
 
     await this.execute(
       `INSERT INTO campaigns
@@ -613,7 +842,14 @@ export class SqliteRepository implements GameRepository {
       await this.lockLibraryCharacter(input.sourceCharacterId, campaign);
     }
 
-    return { campaign, session, character, npcs: [companion], messages: [message], events: [] };
+    return {
+      campaign,
+      session,
+      character,
+      npcs: [companion],
+      messages: [message],
+      events: [],
+    };
   }
 
   async deleteCampaign(campaignId: string): Promise<void> {
@@ -621,30 +857,48 @@ export class SqliteRepository implements GameRepository {
       "SELECT * FROM campaigns WHERE id = $1 LIMIT 1",
       [campaignId],
     );
-    const campaign = campaignRows[0] ? campaignFromRow(campaignRows[0]) : undefined;
+    const campaign = campaignRows[0]
+      ? campaignFromRow(campaignRows[0])
+      : undefined;
     const characterRows = await this.select<{ id: string }>(
       "SELECT id FROM characters WHERE campaign_id = $1",
       [campaignId],
     );
 
     for (const row of characterRows) {
-      await this.execute("DELETE FROM character_versions WHERE character_id = $1", [
-        row.id,
-      ]);
+      await this.execute(
+        "DELETE FROM character_versions WHERE character_id = $1",
+        [row.id],
+      );
     }
-    await this.execute("DELETE FROM game_events WHERE campaign_id = $1", [campaignId]);
-    await this.execute("DELETE FROM messages WHERE campaign_id = $1", [campaignId]);
-    await this.execute("DELETE FROM npc_characters WHERE campaign_id = $1", [campaignId]);
-    await this.execute("DELETE FROM characters WHERE campaign_id = $1", [campaignId]);
-    await this.execute("DELETE FROM sessions WHERE campaign_id = $1", [campaignId]);
+    await this.execute("DELETE FROM game_events WHERE campaign_id = $1", [
+      campaignId,
+    ]);
+    await this.execute("DELETE FROM messages WHERE campaign_id = $1", [
+      campaignId,
+    ]);
+    await this.execute("DELETE FROM npc_characters WHERE campaign_id = $1", [
+      campaignId,
+    ]);
+    await this.execute("DELETE FROM characters WHERE campaign_id = $1", [
+      campaignId,
+    ]);
+    await this.execute("DELETE FROM sessions WHERE campaign_id = $1", [
+      campaignId,
+    ]);
     await this.execute("DELETE FROM campaigns WHERE id = $1", [campaignId]);
     if (campaign?.sourceCharacterId) {
-      await this.releaseLibraryCharacter(campaign.sourceCharacterId, campaignId);
+      await this.releaseLibraryCharacter(
+        campaign.sourceCharacterId,
+        campaignId,
+      );
     }
     await this.releaseLibraryCharactersLockedByCampaign(campaignId);
   }
 
-  async getCampaignDetail(campaignId: string): Promise<CampaignDetail | undefined> {
+  async getCampaignDetail(
+    campaignId: string,
+  ): Promise<CampaignDetail | undefined> {
     const campaignRows = await this.select<CampaignRow>(
       "SELECT * FROM campaigns WHERE id = $1 LIMIT 1",
       [campaignId],
@@ -660,9 +914,10 @@ export class SqliteRepository implements GameRepository {
 
     const campaign = campaignFromRow(campaignRows[0]);
     const characterRows = campaign.activeCharacterId
-      ? await this.select<CharacterRow>("SELECT * FROM characters WHERE id = $1", [
-          campaign.activeCharacterId,
-        ])
+      ? await this.select<CharacterRow>(
+          "SELECT * FROM characters WHERE id = $1",
+          [campaign.activeCharacterId],
+        )
       : [];
     const messageRows = await this.select<MessageRow>(
       "SELECT * FROM messages WHERE campaign_id = $1 ORDER BY created_at ASC",
@@ -680,14 +935,19 @@ export class SqliteRepository implements GameRepository {
     return {
       campaign,
       session: sessionFromRow(sessionRows[0]),
-      character: characterRows[0] ? characterFromRow(characterRows[0]) : undefined,
+      character: characterRows[0]
+        ? characterFromRow(characterRows[0])
+        : undefined,
       npcs: npcRows.map(npcCharacterFromRow),
       messages: messageRows.map(messageFromRow),
       events: eventRows.map(eventFromRow),
     };
   }
 
-  async saveCharacter(campaignId: string, character: CharacterCard): Promise<void> {
+  async saveCharacter(
+    campaignId: string,
+    character: CharacterCard,
+  ): Promise<void> {
     await this.execute(
       `INSERT INTO characters (id, campaign_id, ruleset_id, name, data, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -777,11 +1037,29 @@ export class SqliteRepository implements GameRepository {
     await this.touchCampaign(message.campaignId);
   }
 
-  async updateMessageContent(messageId: string, content: string): Promise<void> {
+  async updateMessageContent(
+    messageId: string,
+    content: string,
+  ): Promise<void> {
     await this.execute("UPDATE messages SET content = $1 WHERE id = $2", [
       content,
       messageId,
     ]);
+  }
+
+  async searchMessages(
+    campaignId: string,
+    query: string,
+    limit = 10,
+  ): Promise<GameMessage[]> {
+    const rows = await this.select<MessageRow>(
+      `SELECT * FROM messages
+       WHERE campaign_id = $1 AND content LIKE $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [campaignId, `%${query}%`, limit],
+    );
+    return rows.map(messageFromRow);
   }
 
   async appendEvent(event: GameEvent): Promise<void> {
@@ -875,6 +1153,27 @@ interface NpcCharacterRow {
   data: string;
 }
 
+interface RulebookDocumentRow {
+  id: string;
+  ruleset_id: string;
+  title: string;
+  source_name: string;
+  content: string;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RulebookChunkRow {
+  id: string;
+  document_id: string;
+  ruleset_id: string;
+  chunk_index: number;
+  content: string;
+  embedding: string;
+  created_at: string;
+}
+
 interface MessageRow {
   id: string;
   campaign_id: string;
@@ -926,7 +1225,9 @@ function characterFromRow(row: CharacterRow): CharacterCard {
   return JSON.parse(row.data) as CharacterCard;
 }
 
-function libraryCharacterFromRow(row: CharacterLibraryRow): CharacterLibraryEntry {
+function libraryCharacterFromRow(
+  row: CharacterLibraryRow,
+): CharacterLibraryEntry {
   return JSON.parse(row.data) as CharacterLibraryEntry;
 }
 
@@ -934,7 +1235,34 @@ function npcCharacterFromRow(row: NpcCharacterRow): NpcCharacter {
   return JSON.parse(row.data) as NpcCharacter;
 }
 
-function withoutLibraryLock(character: CharacterLibraryEntry): CharacterLibraryEntry {
+function rulebookDocumentFromRow(row: RulebookDocumentRow): RulebookDocument {
+  return {
+    id: row.id,
+    rulesetId: row.ruleset_id,
+    title: row.title,
+    sourceName: row.source_name,
+    content: row.content,
+    chunkCount: row.chunk_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function rulebookChunkFromRow(row: RulebookChunkRow): RulebookChunk {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    rulesetId: row.ruleset_id,
+    chunkIndex: row.chunk_index,
+    content: row.content,
+    embedding: parseJson(row.embedding, []),
+    createdAt: row.created_at,
+  };
+}
+
+function withoutLibraryLock(
+  character: CharacterLibraryEntry,
+): CharacterLibraryEntry {
   const released: CharacterLibraryEntry = { ...character };
   delete released.lockedByCampaignId;
   delete released.lockedByCampaignTitle;
@@ -981,7 +1309,10 @@ function createDefaultCompanion(
     kind: "npc",
     isActive: true,
     createdBy: "system",
-    avatarUrl: DEFAULT_NPC_AVATARS[Math.floor(Math.random() * DEFAULT_NPC_AVATARS.length)],
+    avatarUrl:
+      DEFAULT_NPC_AVATARS[
+        Math.floor(Math.random() * DEFAULT_NPC_AVATARS.length)
+      ],
     createdAt: timestamp,
     updatedAt: timestamp,
   };

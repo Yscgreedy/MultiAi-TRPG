@@ -113,10 +113,22 @@ export interface AiProviderConfig {
   defaultModel?: string;
 }
 
+export interface AiRagSettings {
+  enabled: boolean;
+  embeddingProviderId?: string;
+  embeddingModel: string;
+  rerankProviderId?: string;
+  rerankModel: string;
+  topK: number;
+  chunkSize: number;
+}
+
 export interface AiSettings {
   providers: AiProviderConfig[];
   defaultProviderId: string;
   agents: AiAgentConfig[];
+  rag: AiRagSettings;
+  gmFullContext?: boolean;
 }
 
 export interface CampaignDetail {
@@ -126,4 +138,25 @@ export interface CampaignDetail {
   npcs: NpcCharacter[];
   messages: GameMessage[];
   events: GameEvent[];
+}
+
+export interface RulebookDocument {
+  id: string;
+  rulesetId: string;
+  title: string;
+  sourceName: string;
+  content: string;
+  chunkCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RulebookChunk {
+  id: string;
+  documentId: string;
+  rulesetId: string;
+  chunkIndex: number;
+  content: string;
+  embedding: number[];
+  createdAt: string;
 }

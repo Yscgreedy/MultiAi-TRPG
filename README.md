@@ -6,7 +6,8 @@
 
 - 单人玩家 + 多 AI 角色：主持人、队友 NPC、规则裁判、世界记录员。
 - OpenAI-compatible API 配置：`baseUrl`、`apiKey`、默认模型、角色模型覆盖。
-- 角色卡自动生成、JSON 导入、JSON 导出、版本留痕。
+- 角色卡生成、JSON 导入、JSON 导出、版本留痕。
+- 规则书导入与 RAG：按规则书分类切片，使用 provider 配置的 embedding 模型生成向量；rerank 模型为空时跳过 rerank。
 - 战役断点续玩：每轮行动、AI 回复、事件和摘要都持久化。
 - Tauri 运行时使用 `@tauri-apps/plugin-sql` 连接 `sqlite:multi-ai-trpg.db`。
 
@@ -27,6 +28,7 @@ pnpm tauri dev
 
 - `src/lib/rulesets.ts`：轻规则适配器、角色卡 schema、导入导出校验。
 - `src/lib/ai.ts`：OpenAI-compatible 调用、多 AI prompt 组装、角色生成。
+- `src/lib/rag.ts`：规则书切片、embedding 入库、相似度检索和可选 rerank。
 - `src/lib/storage.ts`：Repository 接口、SQLite 实现、浏览器预览 fallback。
 - `src/lib/game.ts`：新建战役、推进回合、断点摘要。
 - `src-tauri/src/lib.rs`：SQLite migrations 和 Tauri 插件注册。
