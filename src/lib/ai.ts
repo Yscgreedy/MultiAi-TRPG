@@ -98,6 +98,7 @@ export interface PrivateChatTarget {
 interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  reasoning_content?: string;
   tool_call_id?: string;
   tool_calls?: ChatCompletionToolCall[];
 }
@@ -421,6 +422,7 @@ export async function runAiAgentTurn(
     messages.push({
       role: "assistant",
       content: data.content,
+      ...(data.reasoningContent ? { reasoning_content: data.reasoningContent } : {}),
       tool_calls: data.toolCalls,
     });
     for (const toolCall of data.toolCalls) {
@@ -1049,11 +1051,12 @@ async function postJsonModeChatCompletion<
 
 async function readChatCompletionResponse(
   response: Response,
-): Promise<{ content: string; toolCalls: ChatCompletionToolCall[] }> {
+): Promise<{ content: string; reasoningContent: string; toolCalls: ChatCompletionToolCall[] }> {
   const data = (await response.json()) as {
     choices?: Array<{
       message?: {
         content?: string | null;
+        reasoning_content?: string | null;
         tool_calls?: ChatCompletionToolCall[];
       };
     }>;
@@ -1061,6 +1064,7 @@ async function readChatCompletionResponse(
   const message = data.choices?.[0]?.message;
   return {
     content: message?.content?.trim() ?? "",
+    reasoningContent: message?.reasoning_content?.trim() ?? "",
     toolCalls: message?.tool_calls ?? [],
   };
 }

@@ -127,6 +127,7 @@ describe("ai prompt builder", () => {
             {
               message: {
                 content: "",
+                reasoning_content: "需要先掷骰判断撬门结果。",
                 tool_calls: [
                   {
                     id: "call_1",
@@ -163,6 +164,7 @@ describe("ai prompt builder", () => {
     expect(output.content).toBe("骰子已经落定。");
     expect((requests[0] as { tools: Array<{ function: { name: string } }> }).tools.map((tool) => tool.function.name)).toContain("roll_dice");
     expect(JSON.stringify(requests[1])).toContain("2d6");
+    expect(JSON.stringify(requests[1])).toContain("需要先掷骰判断撬门结果。");
   });
 
   it("only exposes self card inspection for NPC turns", async () => {

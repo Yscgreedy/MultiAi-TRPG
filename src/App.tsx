@@ -163,7 +163,8 @@ function App() {
   );
   const [detail, setDetail] = useState<CampaignDetail>();
   const [settings, setSettings] = useState<AiSettings>();
-  const [activePage, setActivePage] = useState<"game" | "characters" | "settings">("game");
+  const [activePage, setActivePage] = useState<"game" | "characters">("game");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [fetchingProviderId, setFetchingProviderId] = useState<string>();
   const [preferences, setPreferences] = useState<AppPreferences>(() =>
     loadPreferences(),
@@ -485,22 +486,233 @@ function App() {
     return <LoadingShell />;
   }
 
+  const campaignSidebarContent = (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>新建战役</CardTitle>
+          <CardDescription>创建后会立即生成本地断点。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="campaign-title">战役名</FieldLabel>
+              <Input
+                id="campaign-title"
+                value={campaignForm.title}
+                onChange={(event) =>
+                  setCampaignForm({ ...campaignForm, title: event.target.value })
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="ruleset">规则书</FieldLabel>
+              <Select
+                value={campaignForm.rulesetId}
+                onValueChange={(rulesetId) =>
+                  setCampaignForm({ ...campaignForm, rulesetId })
+                }
+              >
+                <SelectTrigger id="ruleset">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {rulesets.map((ruleset) => (
+                      <SelectItem key={ruleset.id} value={ruleset.id}>
+                        {ruleset.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldDescription>{activeRuleset.description}</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="campaign-premise">开局设定</FieldLabel>
+              <Textarea
+                id="campaign-premise"
+                value={campaignForm.premise}
+                onChange={(event) =>
+                  setCampaignForm({
+                    ...campaignForm,
+                    premise: event.target.value,
+                  })
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="character-concept">初始角色概念</FieldLabel>
+              <Input
+                id="character-concept"
+                value={campaignForm.characterConcept}
+                onChange={(event) =>
+                  setCampaignForm({
+                    ...campaignForm,
+                    characterConcept: event.target.value,
+                  })
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="character-mode">角色来源</FieldLabel>
+              <Select
+                value={campaignForm.characterMode}
+                onValueChange={(characterMode) =>
+                  setCampaignForm({
+                    ...campaignForm,
+                    characterMode: characterMode as CharacterMode,
+                  })
+                }
+              >
+                <SelectTrigger id="character-mode" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="random">随机新角色</SelectItem>
+                    <SelectItem value="existing">已有角色</SelectItem>
+                    <SelectItem value="manual">手动生成</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            {campaignForm.characterMode === "existing" && (
+              <Field>
+                <FieldLabel htmlFor="existing-character">选择角色卡</FieldLabel>
+                <Select
+                  value={campaignForm.existingCharacterId || undefined}
+                  onValueChange={(existingCharacterId) =>
+                    setCampaignForm({ ...campaignForm, existingCharacterId })
+                  }
+                >
+                  <SelectTrigger id="existing-character" className="w-full">
+                    <SelectValue placeholder="选择角色库中的角色" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>{getRuleset(campaignForm.rulesetId).name}</SelectLabel>
+                      {libraryCharacters
+                        .filter((character) => character.rulesetId === campaignForm.rulesetId)
+                        .map((character) => (
+                          <SelectItem
+                            key={character.id}
+                            value={character.id}
+                            disabled={Boolean(character.lockedByCampaignId)}
+                          >
+                            {character.name} · {character.concept}
+                            {character.lockedByCampaignTitle
+                              ? ` · 已在「${character.lockedByCampaignTitle}」中`
+                              : ""}
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FieldDescription>可在顶部“角色卡”页面维护自己的角色库。</FieldDescription>
+              </Field>
+            )}
+            <Button onClick={handleCreateCampaign} disabled={busy}>
+              <PlayIcon data-icon="inline-start" />
+              创建并开始
+            </Button>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>断点续玩</CardTitle>
+          <CardDescription>按最近更新时间排序。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[300px]">
+            <div className="flex flex-col gap-2 pr-3">
+              {campaigns.map((campaign) => (
+                <div key={campaign.id} className="flex items-stretch gap-1">
+                  <Button
+                    variant={detail?.campaign.id === campaign.id ? "secondary" : "ghost"}
+                    className="h-auto min-w-0 flex-1 justify-start px-3 py-2 text-left"
+                    onClick={async () =>
+                      setDetail(await requireRepository().getCampaignDetail(campaign.id))
+                    }
+                  >
+                    <ArchiveIcon data-icon="inline-start" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{campaign.title}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {new Date(campaign.updatedAt).toLocaleString()}
+                      </span>
+                    </span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    disabled={busy}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteCampaignId(campaign.id);
+                    }}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              ))}
+              {!campaigns.length && (
+                <Alert>
+                  <SparklesIcon />
+                  <AlertTitle>暂无存档</AlertTitle>
+                  <AlertDescription>先创建一个战役开始本地记录。</AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <header className="shrink-0 border-b">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-lg border bg-card">
               <SwordsIcon />
             </div>
-            <div>
-              <h1 className="text-lg font-semibold">多 AI 跑团控制台</h1>
-              <p className="text-sm text-muted-foreground">
-                {preferences.displayName} · 本地 SQLite 存档 · 可插拔规则书
-              </p>
-            </div>
+            {activePage === "game" && detail ? (
+              <Sheet>
+                <SheetTrigger asChild>
+                  <button
+                    type="button"
+                    className="min-w-0 rounded-md text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <h1 className="truncate text-lg font-semibold">{detail.campaign.title}</h1>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {detail.campaign.premise}
+                    </p>
+                  </button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-[360px] sm:max-w-[360px]">
+                  <SheetHeader>
+                    <SheetTitle>战役与断点</SheetTitle>
+                    <SheetDescription>新建战役或切换已有断点。</SheetDescription>
+                  </SheetHeader>
+                  <ScrollArea className="min-h-0 flex-1 px-4 pb-4">
+                    {campaignSidebarContent}
+                  </ScrollArea>
+                </SheetContent>
+              </Sheet>
+            ) : (
+              <div>
+                <h1 className="text-lg font-semibold">多 AI 跑团控制台</h1>
+                <p className="text-sm text-muted-foreground">
+                  {preferences.displayName} · 本地 SQLite 存档 · 可插拔规则书
+                </p>
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <AvatarPreview preferences={preferences} size="sm" />
             <Badge variant="secondary">{activeRuleset.name}</Badge>
             <Button
@@ -516,8 +728,8 @@ function App() {
               角色卡
             </Button>
             <Button
-              variant={activePage === "settings" ? "secondary" : "outline"}
-              onClick={() => setActivePage("settings")}
+              variant={settingsOpen ? "secondary" : "outline"}
+              onClick={() => setSettingsOpen(true)}
             >
               <SettingsIcon data-icon="inline-start" />
               设置
@@ -534,16 +746,7 @@ function App() {
         </div>
       </header>
 
-      {activePage === "settings" ? (
-        <main className="min-h-0 flex-1 overflow-auto px-6 py-4">
-          <div className="mx-auto max-w-4xl">
-          <SettingsPage
-            preferences={preferences}
-            onChange={setPreferences}
-          />
-          </div>
-        </main>
-      ) : activePage === "characters" ? (
+      {activePage === "characters" ? (
         <main className="min-h-0 flex-1 overflow-hidden px-6 py-4">
           <div className="mx-auto h-full max-w-7xl">
           <CharacterLibraryPage
@@ -572,198 +775,18 @@ function App() {
           </div>
         </main>
       ) : (
-      <main className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 gap-4 overflow-hidden px-6 py-4 lg:grid-cols-[320px_1fr]">
-        <aside className="min-h-0 overflow-hidden">
-          <ScrollArea className="h-full pr-3">
-          <div className="flex flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>新建战役</CardTitle>
-              <CardDescription>创建后会立即生成本地断点。</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="campaign-title">战役名</FieldLabel>
-                  <Input
-                    id="campaign-title"
-                    value={campaignForm.title}
-                    onChange={(event) =>
-                      setCampaignForm({ ...campaignForm, title: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="ruleset">规则书</FieldLabel>
-                  <Select
-                    value={campaignForm.rulesetId}
-                    onValueChange={(rulesetId) =>
-                      setCampaignForm({ ...campaignForm, rulesetId })
-                    }
-                  >
-                    <SelectTrigger id="ruleset">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {rulesets.map((ruleset) => (
-                          <SelectItem key={ruleset.id} value={ruleset.id}>
-                            {ruleset.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>{activeRuleset.description}</FieldDescription>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="campaign-premise">开局设定</FieldLabel>
-                  <Textarea
-                    id="campaign-premise"
-                    value={campaignForm.premise}
-                    onChange={(event) =>
-                      setCampaignForm({
-                        ...campaignForm,
-                        premise: event.target.value,
-                      })
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="character-concept">初始角色概念</FieldLabel>
-                  <Input
-                    id="character-concept"
-                    value={campaignForm.characterConcept}
-                    onChange={(event) =>
-                      setCampaignForm({
-                        ...campaignForm,
-                        characterConcept: event.target.value,
-                      })
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="character-mode">角色来源</FieldLabel>
-                  <Select
-                    value={campaignForm.characterMode}
-                    onValueChange={(characterMode) =>
-                      setCampaignForm({
-                        ...campaignForm,
-                        characterMode: characterMode as CharacterMode,
-                      })
-                    }
-                  >
-                    <SelectTrigger id="character-mode" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="random">随机新角色</SelectItem>
-                        <SelectItem value="existing">已有角色</SelectItem>
-                        <SelectItem value="manual">手动生成</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {campaignForm.characterMode === "existing" && (
-                  <Field>
-                    <FieldLabel htmlFor="existing-character">选择角色卡</FieldLabel>
-                    <Select
-                      value={campaignForm.existingCharacterId || undefined}
-                      onValueChange={(existingCharacterId) =>
-                        setCampaignForm({ ...campaignForm, existingCharacterId })
-                      }
-                    >
-                      <SelectTrigger id="existing-character" className="w-full">
-                        <SelectValue placeholder="选择角色库中的角色" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectLabel>{getRuleset(campaignForm.rulesetId).name}</SelectLabel>
-                          {libraryCharacters
-                            .filter((character) => character.rulesetId === campaignForm.rulesetId)
-                            .map((character) => (
-                              <SelectItem
-                                key={character.id}
-                                value={character.id}
-                                disabled={Boolean(character.lockedByCampaignId)}
-                              >
-                                {character.name} · {character.concept}
-                                {character.lockedByCampaignTitle
-                                  ? ` · 已在「${character.lockedByCampaignTitle}」中`
-                                  : ""}
-                              </SelectItem>
-                            ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FieldDescription>
-                      可在顶部“角色卡”页面维护自己的角色库。
-                    </FieldDescription>
-                  </Field>
-                )}
-                <Button onClick={handleCreateCampaign} disabled={busy}>
-                  <PlayIcon data-icon="inline-start" />
-                  创建并开始
-                </Button>
-              </FieldGroup>
-            </CardContent>
-          </Card>
+      <main
+        className={`mx-auto grid min-h-0 w-full max-w-7xl flex-1 gap-4 overflow-hidden px-6 py-4 ${
+          detail ? "lg:grid-cols-1" : "lg:grid-cols-[320px_1fr]"
+        }`}
+      >
+        {!detail && (
+          <aside className="min-h-0 overflow-hidden">
+            <ScrollArea className="h-full pr-3">{campaignSidebarContent}</ScrollArea>
+          </aside>
+        )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>断点续玩</CardTitle>
-              <CardDescription>按最近更新时间排序。</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[300px]">
-                <div className="flex flex-col gap-2 pr-3">
-                  {campaigns.map((campaign) => (
-                    <div key={campaign.id} className="flex items-stretch gap-1">
-                      <Button
-                        variant={detail?.campaign.id === campaign.id ? "secondary" : "ghost"}
-                        className="h-auto min-w-0 flex-1 justify-start px-3 py-2 text-left"
-                        onClick={async () =>
-                          setDetail(await requireRepository().getCampaignDetail(campaign.id))
-                        }
-                      >
-                        <ArchiveIcon data-icon="inline-start" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate">{campaign.title}</span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {new Date(campaign.updatedAt).toLocaleString()}
-                          </span>
-                        </span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled={busy}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteCampaignId(campaign.id);
-                        }}
-                      >
-                        <Trash2Icon />
-                      </Button>
-                    </div>
-                  ))}
-                  {!campaigns.length && (
-                    <Alert>
-                      <SparklesIcon />
-                      <AlertTitle>暂无存档</AlertTitle>
-                      <AlertDescription>先创建一个战役开始本地记录。</AlertDescription>
-                    </Alert>
-                  )}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-          </div>
-          </ScrollArea>
-        </aside>
-
-        <section className="min-h-0 min-w-0 overflow-hidden">
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {detail ? (
             <GameConsole
               detail={detail}
@@ -801,6 +824,13 @@ function App() {
         </section>
       </main>
       )}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-h-[min(760px,calc(100vh-3rem))] max-w-4xl overflow-hidden bg-popover/85 p-0 shadow-2xl backdrop-blur-md sm:max-w-4xl">
+          <ScrollArea className="max-h-[min(760px,calc(100vh-3rem))]">
+            <SettingsPage preferences={preferences} onChange={setPreferences} />
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
       <DeleteCampaignDialog
         campaign={campaigns.find((campaign) => campaign.id === deleteCampaignId)}
         open={Boolean(deleteCampaignId)}
@@ -1219,17 +1249,15 @@ function SettingsPage({
   onChange: (preferences: AppPreferences) => void;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>应用设置</CardTitle>
-        <CardDescription>
+    <div className="flex flex-col gap-4 p-6">
+      <div className="flex flex-col gap-2 pr-10">
+        <h2 className="text-xl font-semibold">应用设置</h2>
+        <p className="text-sm text-muted-foreground">
           调整界面主题、显示密度和玩家资料。AI provider 与模型在右上角“AI 设置”中配置。
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <AppPreferencesForm preferences={preferences} onChange={onChange} />
-      </CardContent>
-    </Card>
+        </p>
+      </div>
+      <AppPreferencesForm preferences={preferences} onChange={onChange} />
+    </div>
   );
 }
 
@@ -1878,9 +1906,10 @@ function GameConsole({
   return (
     <Tabs defaultValue="play" className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold">{detail.campaign.title}</h2>
-          <p className="text-sm text-muted-foreground">{detail.campaign.premise}</p>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{detail.session.title}</Badge>
+          <Badge variant="outline">{detail.messages.length} 条记录</Badge>
+          <Badge variant="outline">{detail.npcs.length} 名 NPC</Badge>
         </div>
         <TabsList>
           <TabsTrigger value="play">游戏</TabsTrigger>
@@ -1890,24 +1919,11 @@ function GameConsole({
         </TabsList>
       </div>
 
-      <TabsContent value="play" className="min-h-0 flex-1">
-        <div className="h-full min-h-0">
-          <Card className="min-h-0 min-w-0 overflow-hidden">
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>游戏进程</CardTitle>
-                  <CardDescription>每一轮玩家行动和 AI 回应都会写入本地存档。</CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">{detail.session.title}</Badge>
-                  <Badge variant="outline">{detail.messages.length} 条记录</Badge>
-                  <Badge variant="outline">{detail.npcs.length} 名 NPC</Badge>
-                </div>
-              </div>
-            </CardHeader>
+      <TabsContent value="play" className="min-h-0 flex-1 overflow-auto xl:overflow-hidden">
+        <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <Card className="flex h-full min-h-[520px] min-w-0 flex-col overflow-hidden xl:min-h-0">
             <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-              <ScrollArea className="min-h-0 flex-1 rounded-lg border">
+              <ScrollArea className="min-h-[280px] flex-1 rounded-lg border">
                 <div className="flex flex-col gap-3 p-4">
                   {detail.messages.map((message) => (
                     <div key={message.id} className="rounded-lg border bg-card p-3">
@@ -1924,74 +1940,7 @@ function GameConsole({
                   ))}
                 </div>
               </ScrollArea>
-              <FieldGroup className="shrink-0">
-                <Field orientation="horizontal">
-                  <Switch checked={proxyMode} onCheckedChange={onProxyModeChange} />
-                  <div className="min-w-0 flex-1">
-                    <FieldLabel>代理模式</FieldLabel>
-                    <FieldDescription>
-                      让独立 AI 先给出可选行动；你可以点选后修改，也可以完全手写。
-                    </FieldDescription>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={onGenerateProxyOptions}
-                    disabled={!proxyMode || busy || generatingProxyOptions}
-                  >
-                    <SparklesIcon data-icon="inline-start" />
-                    {generatingProxyOptions ? "生成中" : "生成选项"}
-                  </Button>
-                </Field>
-                {proxyMode && proxyOptions.length > 0 && (
-                  <Field>
-                    <FieldLabel>代理建议</FieldLabel>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {proxyOptions.map((option) => (
-                        <Button
-                          key={option}
-                          variant={playerAction === option ? "secondary" : "outline"}
-                          className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
-                          onClick={() => onAcceptProxyOption(option)}
-                        >
-                          {option}
-                        </Button>
-                      ))}
-                    </div>
-                  </Field>
-                )}
-                <Field orientation="horizontal">
-                  <div className="min-w-0 flex-1">
-                    <FieldLabel>手动骰子</FieldLabel>
-                    <FieldDescription>
-                      GM 工具掷骰会自动入事件记录；这里仅供玩家临时手动抛骰。
-                    </FieldDescription>
-                  </div>
-                  <div className="flex min-w-[260px] gap-2">
-                    <Select value={diceExpression} onValueChange={setDiceExpression}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {diceExpressions.map((expression) => (
-                            <SelectItem key={expression} value={expression}>
-                              {expression}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <Button variant="outline" onClick={rollDice}>
-                      <Dice5Icon data-icon="inline-start" />
-                      抛
-                    </Button>
-                  </div>
-                  {diceResult && (
-                    <Badge variant="secondary">
-                      {diceResult.total} · {diceResult.rolls.join(" + ")}
-                    </Badge>
-                  )}
-                </Field>
+              <FieldGroup className="shrink-0 gap-3">
                 <Field>
                   <FieldLabel htmlFor="player-action">玩家行动</FieldLabel>
                   <Textarea
@@ -2041,6 +1990,80 @@ function GameConsole({
                   推进一轮多 AI 回合
                 </Button>
               </FieldGroup>
+            </CardContent>
+          </Card>
+
+          <Card className="min-h-0 overflow-hidden xl:h-full">
+            <CardHeader>
+              <CardTitle>侧边工具</CardTitle>
+              <CardDescription>代理建议和临时判定不再占用聊天记录空间。</CardDescription>
+            </CardHeader>
+            <CardContent className="flex min-h-0 flex-col gap-4">
+              <Field orientation="horizontal">
+                <Switch checked={proxyMode} onCheckedChange={onProxyModeChange} />
+                <div className="min-w-0 flex-1">
+                  <FieldLabel>代理模式</FieldLabel>
+                  <FieldDescription>让 AI 先给出可选行动。</FieldDescription>
+                </div>
+              </Field>
+              <Button
+                variant="outline"
+                onClick={onGenerateProxyOptions}
+                disabled={!proxyMode || busy || generatingProxyOptions}
+              >
+                <SparklesIcon data-icon="inline-start" />
+                {generatingProxyOptions ? "生成中" : "生成选项"}
+              </Button>
+              {proxyMode && proxyOptions.length > 0 && (
+                <Field className="min-h-0">
+                  <FieldLabel>代理建议</FieldLabel>
+                  <ScrollArea className="max-h-64 rounded-lg border">
+                    <div className="flex flex-col gap-2 p-2">
+                      {proxyOptions.map((option) => (
+                        <Button
+                          key={option}
+                          variant={playerAction === option ? "secondary" : "ghost"}
+                          className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
+                          onClick={() => onAcceptProxyOption(option)}
+                        >
+                          {option}
+                        </Button>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </Field>
+              )}
+              <Field>
+                <FieldLabel>手动骰子</FieldLabel>
+                <FieldDescription>
+                  GM 工具掷骰会自动入事件记录；这里仅供玩家临时手动抛骰。
+                </FieldDescription>
+                <div className="flex gap-2">
+                  <Select value={diceExpression} onValueChange={setDiceExpression}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {diceExpressions.map((expression) => (
+                          <SelectItem key={expression} value={expression}>
+                            {expression}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" onClick={rollDice}>
+                    <Dice5Icon data-icon="inline-start" />
+                    抛
+                  </Button>
+                </div>
+                {diceResult && (
+                  <Badge variant="secondary" className="w-fit">
+                    {diceResult.total} · {diceResult.rolls.join(" + ")}
+                  </Badge>
+                )}
+              </Field>
             </CardContent>
           </Card>
         </div>

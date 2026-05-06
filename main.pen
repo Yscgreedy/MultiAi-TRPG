@@ -1,0 +1,2684 @@
+{
+  "version": "2.11",
+  "children": [
+    {
+      "type": "frame",
+      "id": "bi8Au",
+      "x": 0,
+      "y": 0,
+      "name": "Frame",
+      "clip": true,
+      "width": 800,
+      "height": 600,
+      "fill": "#F4F6F8",
+      "children": [
+        {
+          "type": "frame",
+          "id": "UjbiT",
+          "name": "Sidebar",
+          "width": 240,
+          "height": "fill_container",
+          "fill": "#FFFFFF",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "d4wkh",
+              "name": "header",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                4,
+                0
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "WsstU",
+                  "name": "title",
+                  "fill": "#1F2937",
+                  "content": "奇旅 TRPG",
+                  "fontFamily": "Inter",
+                  "fontSize": 20,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "g7vS7",
+                  "name": "subtitle",
+                  "fill": "#6B7280",
+                  "content": "叙事协作冒险平台",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "JbxJ6",
+              "name": "ctaWrap",
+              "width": "fill_container",
+              "layout": "vertical",
+              "padding": [
+                4,
+                0
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "F84nV",
+                  "name": "cta",
+                  "width": "fill_container",
+                  "fill": "#2563EB",
+                  "cornerRadius": 10,
+                  "padding": [
+                    12,
+                    10
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "tARYT",
+                      "name": "ctaText",
+                      "fill": "#FFFFFF",
+                      "content": "新建冒险",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "FmmCd",
+              "name": "listSection",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "padding": [
+                8,
+                0
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "gCw9g",
+                  "name": "listTitle",
+                  "fill": "#6B7280",
+                  "content": "进行中的冒险",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "frame",
+                  "id": "VzF1c",
+                  "name": "item1",
+                  "width": "fill_container",
+                  "fill": "#EFF6FF",
+                  "cornerRadius": 8,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#BFDBFE"
+                  },
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "YwWgi",
+                      "name": "item1Text",
+                      "fill": "#1D4ED8",
+                      "content": "星港迷航（当前）",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "NW6Va",
+                  "name": "item2",
+                  "width": "fill_container",
+                  "fill": "#F8FAFC",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "i7kSL",
+                      "name": "item2Text",
+                      "fill": "#374151",
+                      "content": "雾都钟塔疑案",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "F86Lfe",
+                  "name": "item3",
+                  "width": "fill_container",
+                  "fill": "#F8FAFC",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "JYeMe",
+                      "name": "item3Text",
+                      "fill": "#374151",
+                      "content": "荒原列车终点站",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "LwPpv",
+              "name": "footer",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "padding": [
+                8,
+                0,
+                0,
+                0
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Z5TqbA",
+                  "name": "entry1",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "padding": [
+                    8,
+                    6
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Ejw33",
+                      "name": "entry1Text",
+                      "fill": "#374151",
+                      "content": "角色库",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "SqOfw",
+                  "name": "entry2",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "padding": [
+                    8,
+                    6
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "v8ivO",
+                      "name": "entry2Text",
+                      "fill": "#374151",
+                      "content": "存档管理",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "XKpqB",
+                  "name": "entry3",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 8,
+                  "padding": [
+                    8,
+                    6
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sPQRR",
+                      "name": "entry3Text",
+                      "fill": "#374151",
+                      "content": "设置",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "JCzub",
+          "name": "MainArea",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "#F8FAFC",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "gjTQW",
+              "name": "header",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 12,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#E2E8F0"
+              },
+              "padding": [
+                12,
+                14
+              ],
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "hkrJS",
+                  "name": "headerTitleWrap",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "pAoKt",
+                      "name": "headerTitle",
+                      "fill": "#0F172A",
+                      "content": "雾港失踪案",
+                      "fontFamily": "Inter",
+                      "fontSize": 20,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "q01aB",
+                      "name": "headerDesc",
+                      "fill": "#64748B",
+                      "content": "规则集：轻规则 v1 · 回合 07",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "A5zLoB",
+                  "name": "statusRow",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "V4r0ph",
+                      "name": "statusTag",
+                      "fill": "#DCFCE7",
+                      "cornerRadius": 999,
+                      "padding": [
+                        8,
+                        4
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "KmSoO",
+                          "name": "statusText",
+                          "fill": "#166534",
+                          "content": "AI 在线",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "AXOg0",
+                      "name": "saveTag",
+                      "fill": "#E2E8F0",
+                      "cornerRadius": 999,
+                      "padding": [
+                        8,
+                        4
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "zS2CW",
+                          "name": "saveText",
+                          "fill": "#334155",
+                          "content": "自动保存",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "r7yXL",
+              "name": "content",
+              "width": "fill_container",
+              "height": "fill_container",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VygU3",
+                  "name": "logCard",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 12,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#E2E8F0"
+                  },
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Nb02S",
+                      "name": "logTitle",
+                      "fill": "#0F172A",
+                      "content": "剧情记录",
+                      "fontFamily": "Inter",
+                      "fontSize": 16,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "D3kog7",
+                      "name": "logStream",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "#F8FAFC",
+                      "cornerRadius": 10,
+                      "layout": "vertical",
+                      "gap": 10,
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "pg9Ih",
+                          "name": "msgNpc",
+                          "width": "fill_container",
+                          "fill": "#FFFFFF",
+                          "cornerRadius": 10,
+                          "stroke": {
+                            "align": "inside",
+                            "thickness": 1,
+                            "fill": "#E2E8F0"
+                          },
+                          "layout": "vertical",
+                          "gap": 4,
+                          "padding": 10,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "nfDwp",
+                              "name": "msgNpcRole",
+                              "fill": "#0EA5A4",
+                              "content": "GM",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Ezp9N",
+                              "name": "msgNpcText",
+                              "fill": "#1E293B",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "海风卷起灯塔下的雾，旧木门发出轻响。你听见二层有短促脚步声。",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "mCOnP",
+                          "name": "msgPlayer",
+                          "width": "fill_container",
+                          "fill": "#ECFEFF",
+                          "cornerRadius": 10,
+                          "stroke": {
+                            "align": "inside",
+                            "thickness": 1,
+                            "fill": "#99F6E4"
+                          },
+                          "layout": "vertical",
+                          "gap": 4,
+                          "padding": 10,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "F2HYk",
+                              "name": "msgPlayerRole",
+                              "fill": "#0F766E",
+                              "content": "玩家",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "text",
+                              "id": "gWJ4u",
+                              "name": "msgPlayerText",
+                              "fill": "#134E4A",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "我先压低脚步，靠近楼梯口观察声音来源。",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "M5fOWv",
+                      "name": "actionBox",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 10,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#CBD5E1"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "yEwpc",
+                          "name": "actionInput",
+                          "fill": "#94A3B8",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "描述你的行动……",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "I7gFL",
+                          "name": "actionBtn",
+                          "fill": "#0F766E",
+                          "cornerRadius": 8,
+                          "padding": [
+                            10,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Jh2Gs",
+                              "name": "actionBtnText",
+                              "fill": "#FFFFFF",
+                              "content": "发送行动",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "YaQQt",
+                  "name": "sideCol",
+                  "width": 220,
+                  "height": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ddiWT",
+                      "name": "diceCard",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#E2E8F0"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "nibb7",
+                          "name": "diceTitle",
+                          "fill": "#0F172A",
+                          "content": "快捷掷骰",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dy3qc",
+                          "name": "diceRow",
+                          "width": "fill_container",
+                          "gap": 8,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "yzRXT",
+                              "name": "d4",
+                              "width": "fill_container",
+                              "fill": "#F1F5F9",
+                              "cornerRadius": 8,
+                              "padding": [
+                                8,
+                                6
+                              ],
+                              "justifyContent": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "RzE1a",
+                                  "name": "d4t",
+                                  "fill": "#334155",
+                                  "content": "1d6",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "UFJCs",
+                              "name": "d20",
+                              "width": "fill_container",
+                              "fill": "#F1F5F9",
+                              "cornerRadius": 8,
+                              "padding": [
+                                8,
+                                6
+                              ],
+                              "justifyContent": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "AyDue",
+                                  "name": "d20t",
+                                  "fill": "#334155",
+                                  "content": "1d20",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "c2eI6",
+                      "name": "charCard",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#E2E8F0"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wVyoD",
+                          "name": "charTitle",
+                          "fill": "#0F172A",
+                          "content": "当前角色",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Ly0VJ",
+                          "name": "charName",
+                          "fill": "#1E293B",
+                          "content": "林渡（调查员）",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "HfXWS",
+                          "name": "charStats",
+                          "fill": "#64748B",
+                          "content": "洞察 78  交涉 62  潜行 55",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "QnGSS",
+          "layoutPosition": "absolute",
+          "x": 0,
+          "y": 0,
+          "name": "overlay",
+          "width": 800,
+          "height": 600,
+          "fill": "#0F172A99",
+          "layout": "vertical"
+        },
+        {
+          "type": "frame",
+          "id": "NN06G",
+          "layoutPosition": "absolute",
+          "x": 248,
+          "y": 198,
+          "name": "dialog",
+          "width": 304,
+          "fill": "#FFFFFF",
+          "cornerRadius": 12,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#CBD5E1"
+          },
+          "layout": "vertical",
+          "gap": 10,
+          "padding": 14,
+          "children": [
+            {
+              "type": "text",
+              "id": "B8sjmr",
+              "name": "dt",
+              "fill": "#0F172A",
+              "content": "删除该冒险？",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "CWtZK",
+              "name": "dd",
+              "fill": "#475569",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "操作不可撤销，相关剧情记录与回合历史将一并删除。",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "biDh4",
+              "name": "row",
+              "width": "fill_container",
+              "gap": 8,
+              "padding": [
+                6,
+                0,
+                0,
+                0
+              ],
+              "justifyContent": "end",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "EL4Xx",
+                  "name": "cancel",
+                  "fill": "#E2E8F0",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    7
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "RcKCa",
+                      "name": "cancelT",
+                      "fill": "#334155",
+                      "content": "取消",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "KBnVK",
+                  "name": "del",
+                  "fill": "#DC2626",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    7
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "L7R0vE",
+                      "name": "delT",
+                      "fill": "#FFFFFF",
+                      "content": "确认删除",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "UW2ur",
+      "x": 860,
+      "y": 0,
+      "name": "CharactersPage",
+      "clip": true,
+      "width": 800,
+      "height": 600,
+      "fill": "#F4F6F8",
+      "children": [
+        {
+          "type": "frame",
+          "id": "QM3QK",
+          "name": "AppNav",
+          "width": 200,
+          "height": "fill_container",
+          "fill": "#FFFFFF",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#E6EAF0"
+          },
+          "layout": "vertical",
+          "gap": 16,
+          "padding": [
+            20,
+            16
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "r6I1rC",
+              "name": "navTitle",
+              "fill": "#1F2937",
+              "content": "TRPG 控制台",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "pH6Vy",
+              "name": "navMenu",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "UerC0",
+                  "name": "item1",
+                  "width": "fill_container",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "KUmam",
+                      "name": "item1Text",
+                      "fill": "#4B5563",
+                      "content": "仪表盘",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "VDhRu",
+                  "name": "item2",
+                  "width": "fill_container",
+                  "fill": "#EAF2FF",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "EQNM8",
+                      "name": "item2Text",
+                      "fill": "#1D4ED8",
+                      "content": "角色库",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "I2oBx",
+                  "name": "item3",
+                  "width": "fill_container",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Awt6y",
+                      "name": "item3Text",
+                      "fill": "#4B5563",
+                      "content": "战役",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "eHLQT",
+                  "name": "item4",
+                  "width": "fill_container",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "rqwB0",
+                      "name": "item4Text",
+                      "fill": "#4B5563",
+                      "content": "世界书",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "uZH4w",
+                  "name": "item5",
+                  "width": "fill_container",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "p9OrQ",
+                      "name": "item5Text",
+                      "fill": "#4B5563",
+                      "content": "设置",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "piv5S",
+          "name": "CharacterLibraryMain",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "#F8FAFC",
+          "layout": "vertical",
+          "gap": 16,
+          "padding": [
+            24,
+            20
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "WrenW",
+              "name": "topbar",
+              "width": "fill_container",
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "K9w1YF",
+                  "name": "headingBlock",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wAp9o",
+                      "name": "pageTitle",
+                      "fill": "#0F172A",
+                      "content": "角色库",
+                      "fontFamily": "Inter",
+                      "fontSize": 28,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "U02Hi7",
+                      "name": "subtitle",
+                      "fill": "#64748B",
+                      "content": "管理你的桌面端 TRPG 角色与构筑",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "O94q2",
+                  "name": "controls",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "nonEp",
+                      "name": "filter",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 10,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#D8DEE8"
+                      },
+                      "padding": [
+                        12,
+                        8
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "UjPvz",
+                          "name": "filterText",
+                          "fill": "#334155",
+                          "content": "筛选：全部阵营",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Tnmya",
+                      "name": "ruleSwitch",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 10,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#D8DEE8"
+                      },
+                      "padding": [
+                        12,
+                        8
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "cVKwV",
+                          "name": "ruleText",
+                          "fill": "#334155",
+                          "content": "规则集：DND 5e",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "oIx5T",
+                      "name": "newBtn",
+                      "fill": "#2563EB",
+                      "cornerRadius": 10,
+                      "padding": [
+                        14,
+                        9
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "SP1nt",
+                          "name": "newBtnText",
+                          "fill": "#FFFFFF",
+                          "content": "新建角色",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "K0hT6",
+              "name": "cardsSection",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "adVVB",
+                  "name": "row1",
+                  "width": "fill_container",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "D6MiVu",
+                      "name": "card1",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#DCE4EE"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "bzaTg",
+                          "name": "card1Name",
+                          "fill": "#0F172A",
+                          "content": "艾琳·晨星",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "WThlc",
+                          "name": "card1Job",
+                          "fill": "#334155",
+                          "content": "职业：吟游诗人",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "GrlZH",
+                          "name": "card1Stat",
+                          "fill": "#64748B",
+                          "content": "关键属性：魅力 18 / 感知 14",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xNZHK",
+                      "name": "card2",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#DCE4EE"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "tJAE2",
+                          "name": "card2Name",
+                          "fill": "#0F172A",
+                          "content": "托林·灰锤",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "JnS0J",
+                          "name": "card2Job",
+                          "fill": "#334155",
+                          "content": "职业：圣武士",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "bc0Et",
+                          "name": "card2Stat",
+                          "fill": "#64748B",
+                          "content": "关键属性：力量 17 / 体质 16",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "KsMrH",
+                      "name": "card3",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#DCE4EE"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "vPsO6",
+                          "name": "card3Name",
+                          "fill": "#0F172A",
+                          "content": "莲·雾影",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "e1QTR",
+                          "name": "card3Job",
+                          "fill": "#334155",
+                          "content": "职业：游荡者",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Hh4Ym",
+                          "name": "card3Stat",
+                          "fill": "#64748B",
+                          "content": "关键属性：敏捷 19 / 智力 13",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "g101DY",
+                  "name": "row2",
+                  "width": "fill_container",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "gs8ce",
+                      "name": "card4",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#DCE4EE"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "i2cB1",
+                          "name": "card4Name",
+                          "fill": "#0F172A",
+                          "content": "阿瑟·寒霜",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "vavbm",
+                          "name": "card4Job",
+                          "fill": "#334155",
+                          "content": "职业：法师",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Qd2s1",
+                          "name": "card4Stat",
+                          "fill": "#64748B",
+                          "content": "关键属性：智力 18 / 体质 12",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "K9oRX",
+                      "name": "card5",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#DCE4EE"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "K172c",
+                          "name": "card5Name",
+                          "fill": "#0F172A",
+                          "content": "米拉·溪歌",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "I53oEZ",
+                          "name": "card5Job",
+                          "fill": "#334155",
+                          "content": "职业：德鲁伊",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "aZd04",
+                          "name": "card5Stat",
+                          "fill": "#64748B",
+                          "content": "关键属性：感知 17 / 敏捷 15",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "l0MDeg",
+                      "name": "card6",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 12,
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#DCE4EE"
+                      },
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "o08S3",
+                          "name": "card6Name",
+                          "fill": "#0F172A",
+                          "content": "卡尔·赤焰",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "JZaNn",
+                          "name": "card6Job",
+                          "fill": "#334155",
+                          "content": "职业：术士",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "D85B4r",
+                          "name": "card6Stat",
+                          "fill": "#64748B",
+                          "content": "关键属性：魅力 17 / 体质 14",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "pdDFc",
+              "name": "footer",
+              "width": "fill_container",
+              "padding": [
+                10,
+                0
+              ],
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "LBaGv",
+                  "name": "countText",
+                  "fill": "#64748B",
+                  "content": "共 18 名角色",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "sHIPq",
+                  "name": "pageText",
+                  "fill": "#475569",
+                  "content": "上一页  1 / 3  下一页",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "TKhqE",
+      "x": 1720,
+      "y": 0,
+      "name": "SettingsPage",
+      "clip": true,
+      "width": 800,
+      "height": 600,
+      "fill": "#F4F6F8",
+      "children": [
+        {
+          "type": "frame",
+          "id": "e9LSE",
+          "name": "左侧导航",
+          "width": 220,
+          "height": "fill_container",
+          "fill": "#0F172A",
+          "layout": "vertical",
+          "gap": 18,
+          "padding": [
+            24,
+            20
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "TlxOz",
+              "name": "brand",
+              "fill": "#F8FAFC",
+              "content": "AI 控制台",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "XWHhu",
+              "name": "navGroup",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "iFidU",
+                  "name": "nav1",
+                  "width": "fill_container",
+                  "fill": "#1E293B",
+                  "cornerRadius": 10,
+                  "padding": [
+                    12,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "l10M4",
+                      "name": "nav1Text",
+                      "fill": "#E2E8F0",
+                      "content": "AI 设置",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qTgwa",
+                  "name": "nav2",
+                  "width": "fill_container",
+                  "cornerRadius": 10,
+                  "padding": [
+                    12,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "zDjxf",
+                      "name": "nav2Text",
+                      "fill": "#94A3B8",
+                      "content": "模型市场",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qer33",
+                  "name": "nav3",
+                  "width": "fill_container",
+                  "cornerRadius": 10,
+                  "padding": [
+                    12,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "zhu5w",
+                      "name": "nav3Text",
+                      "fill": "#94A3B8",
+                      "content": "日志与监控",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "EB4Ur",
+                  "name": "nav4",
+                  "width": "fill_container",
+                  "cornerRadius": 10,
+                  "padding": [
+                    12,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "dgMGX",
+                      "name": "nav4Text",
+                      "fill": "#94A3B8",
+                      "content": "权限管理",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "q4qmLW",
+          "name": "设置区",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "gap": 10,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "FETP9",
+              "name": "header",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "AoQOe",
+                  "name": "title",
+                  "fill": "#0F172A",
+                  "content": "AI 设置页面",
+                  "fontFamily": "Inter",
+                  "fontSize": 22,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "d0rz7",
+                  "name": "subtitle",
+                  "fill": "#64748B",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "配置大模型提供商、参数与代理策略，保存后即时生效。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "M2xUxH",
+              "name": "content",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "I9b1A",
+                  "name": "providerCard",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 12,
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#E2E8F0"
+                  },
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sjBPn",
+                      "name": "providerTitle",
+                      "fill": "#0F172A",
+                      "content": "提供商配置",
+                      "fontFamily": "Inter",
+                      "fontSize": 16,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "erOgH",
+                      "name": "providerList",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ljxyT",
+                          "name": "p1",
+                          "width": "fill_container",
+                          "fill": "#F8FAFC",
+                          "cornerRadius": 10,
+                          "padding": [
+                            10,
+                            8
+                          ],
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "SVQ7h",
+                              "name": "p1Name",
+                              "fill": "#0F172A",
+                              "content": "OpenAI",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "s8Msvn",
+                              "name": "p1State",
+                              "fill": "#16A34A",
+                              "content": "已连接",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "V4cc6q",
+                          "name": "p2",
+                          "width": "fill_container",
+                          "fill": "#F8FAFC",
+                          "cornerRadius": 10,
+                          "padding": [
+                            10,
+                            8
+                          ],
+                          "justifyContent": "space_between",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "DbyiO",
+                              "name": "p2Name",
+                              "fill": "#0F172A",
+                              "content": "Anthropic",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "DHl1N",
+                              "name": "p2State",
+                              "fill": "#F59E0B",
+                              "content": "未配置",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "xXIrl",
+                  "name": "modelCard",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 12,
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#E2E8F0"
+                  },
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "qzgYG",
+                      "name": "modelTitle",
+                      "fill": "#0F172A",
+                      "content": "模型与认证",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "tKtsu",
+                      "name": "modelRow",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "rRcnc",
+                          "name": "modelField",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "s9PX5",
+                              "name": "modelLabel",
+                              "fill": "#334155",
+                              "content": "模型选择",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Q5kW2",
+                              "name": "modelInput",
+                              "width": "fill_container",
+                              "fill": "#F8FAFC",
+                              "cornerRadius": 10,
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "#E2E8F0"
+                              },
+                              "padding": [
+                                10,
+                                8
+                              ],
+                              "justifyContent": "space_between",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "X47Q2",
+                                  "name": "modelValue",
+                                  "fill": "#0F172A",
+                                  "content": "gpt-5.5",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "OODFh",
+                                  "name": "modelArrow",
+                                  "fill": "#64748B",
+                                  "content": "▼",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "l25rm",
+                          "name": "keyField",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B43Ou",
+                              "name": "keyLabel",
+                              "fill": "#334155",
+                              "content": "API Key",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "gRv7j",
+                              "name": "keyInput",
+                              "width": "fill_container",
+                              "fill": "#F8FAFC",
+                              "cornerRadius": 10,
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "#E2E8F0"
+                              },
+                              "padding": [
+                                10,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Kyziy",
+                                  "name": "keyValue",
+                                  "fill": "#64748B",
+                                  "content": "sk-********************************",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "HlpQl",
+                  "name": "paramCard",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 12,
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#E2E8F0"
+                  },
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "c4BM12",
+                      "name": "paramTitle",
+                      "fill": "#0F172A",
+                      "content": "推理参数",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Zk7qy",
+                      "name": "paramRow",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "eHRcu",
+                          "name": "tempField",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "WPyFv",
+                              "name": "tempLabel",
+                              "fill": "#334155",
+                              "content": "温度 Temperature",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "RoGPh",
+                              "name": "tempInput",
+                              "width": "fill_container",
+                              "fill": "#F8FAFC",
+                              "cornerRadius": 10,
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "#E2E8F0"
+                              },
+                              "padding": [
+                                10,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "V2wXZ",
+                                  "name": "tempValue",
+                                  "fill": "#0F172A",
+                                  "content": "0.7",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "rAFl4",
+                          "name": "maxField",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "rbkGF",
+                              "name": "maxLabel",
+                              "fill": "#334155",
+                              "content": "最大 Token",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "v5Mk7d",
+                              "name": "maxInput",
+                              "width": "fill_container",
+                              "fill": "#F8FAFC",
+                              "cornerRadius": 10,
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "#E2E8F0"
+                              },
+                              "padding": [
+                                10,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Eufmp",
+                                  "name": "maxValue",
+                                  "fill": "#0F172A",
+                                  "content": "4096",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Xeh2W",
+                  "name": "proxyCard",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 12,
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#E2E8F0"
+                  },
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "RYL5d",
+                      "name": "proxyTitle",
+                      "fill": "#0F172A",
+                      "content": "代理与保存",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "x1M5ly",
+                      "name": "proxyRow",
+                      "width": "fill_container",
+                      "fill": "#F8FAFC",
+                      "cornerRadius": 10,
+                      "padding": [
+                        8,
+                        7
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "taUZf",
+                          "name": "proxyText",
+                          "fill": "#0F172A",
+                          "content": "代理模式（通过统一网关转发）",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "GenBC",
+                          "name": "toggle",
+                          "width": 46,
+                          "height": 24,
+                          "fill": "#16A34A",
+                          "cornerRadius": 999,
+                          "padding": 3,
+                          "justifyContent": "end",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "oUWgv",
+                              "name": "toggleKnob",
+                              "fill": "#FFFFFF",
+                              "width": 18,
+                              "height": 18
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OD3ad",
+                      "name": "actionRow",
+                      "width": "fill_container",
+                      "padding": [
+                        2,
+                        0
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ODp31",
+                          "name": "status",
+                          "fill": "#16A34A",
+                          "content": "状态：配置已保存（2 分钟前）",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "n5yiVC",
+                          "name": "saveBtn",
+                          "fill": "#2563EB",
+                          "cornerRadius": 10,
+                          "padding": [
+                            12,
+                            7
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "HJLmG",
+                              "name": "saveText",
+                              "fill": "#FFFFFF",
+                              "content": "保存设置",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "v8B3u",
+      "x": 2580,
+      "y": 0,
+      "name": "CreateCampaignPage",
+      "clip": true,
+      "width": 800,
+      "height": 600,
+      "fill": "#F4F6F8",
+      "children": [
+        {
+          "type": "frame",
+          "id": "VHby0",
+          "name": "sidebar",
+          "width": 240,
+          "height": "fill_container",
+          "fill": "#FFFFFF",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "yvt5t",
+              "name": "sTitle",
+              "fill": "#1F2937",
+              "content": "奇旅 TRPG",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "dO00z",
+              "name": "sSub",
+              "fill": "#6B7280",
+              "content": "叙事协作冒险平台",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "Sn7YI",
+              "name": "menuWrap",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "padding": [
+                10,
+                0,
+                0,
+                0
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "L4oEt0",
+                  "name": "mi1",
+                  "width": "fill_container",
+                  "fill": "#F8FAFC",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "to7RI",
+                      "name": "mi1t",
+                      "fill": "#374151",
+                      "content": "进行中冒险",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "GL4Pq",
+                  "name": "mi2",
+                  "width": "fill_container",
+                  "fill": "#DBEAFE",
+                  "cornerRadius": 8,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#93C5FD"
+                  },
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "COBVq",
+                      "name": "mi2t",
+                      "fill": "#1D4ED8",
+                      "content": "新建冒险（当前）",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "YSaEm",
+                  "name": "mi3",
+                  "width": "fill_container",
+                  "fill": "#F8FAFC",
+                  "cornerRadius": 8,
+                  "padding": [
+                    10,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "cR1gv",
+                      "name": "mi3t",
+                      "fill": "#374151",
+                      "content": "角色库",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "dSZCo",
+          "name": "main",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "#F8FAFC",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "d0afw",
+              "name": "head",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                4,
+                2
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "iREMY",
+                  "name": "headT",
+                  "fill": "#0F172A",
+                  "content": "创建新冒险",
+                  "fontFamily": "Inter",
+                  "fontSize": 22,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "kuDUQ",
+                  "name": "headD",
+                  "fill": "#64748B",
+                  "content": "填写基础信息并生成开局角色。",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "U60kEk",
+              "name": "formCard",
+              "width": "fill_container",
+              "height": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 12,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#E2E8F0"
+              },
+              "layout": "vertical",
+              "gap": 10,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "pnjbf",
+                  "name": "field1",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "S7Iy9R",
+                      "name": "f1l",
+                      "fill": "#334155",
+                      "content": "冒险标题",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "s4MQJ5",
+                      "name": "f1v",
+                      "width": "fill_container",
+                      "fill": "#F8FAFC",
+                      "cornerRadius": 8,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#CBD5E1"
+                      },
+                      "padding": [
+                        10,
+                        8
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "teczM",
+                          "name": "f1t",
+                          "fill": "#0F172A",
+                          "content": "雾港失踪案",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wwCVf",
+                  "name": "field2",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "n8mP8w",
+                      "name": "f2l",
+                      "fill": "#334155",
+                      "content": "故事前提",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "l9XXI",
+                      "name": "f2v",
+                      "width": "fill_container",
+                      "height": 96,
+                      "fill": "#F8FAFC",
+                      "cornerRadius": 8,
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 1,
+                        "fill": "#CBD5E1"
+                      },
+                      "layout": "vertical",
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RSQSt",
+                          "name": "f2t",
+                          "fill": "#334155",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "潮湿港城里，一封没有署名的求救信把主角引向旧灯塔。",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "B0BHS",
+                  "name": "field3",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "KY5wg",
+                      "name": "rules",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "D3pJs",
+                          "name": "rl",
+                          "fill": "#334155",
+                          "content": "规则集",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "AzJn2",
+                          "name": "rv",
+                          "width": "fill_container",
+                          "fill": "#F8FAFC",
+                          "cornerRadius": 8,
+                          "stroke": {
+                            "align": "inside",
+                            "thickness": 1,
+                            "fill": "#CBD5E1"
+                          },
+                          "padding": [
+                            10,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "aXqPO",
+                              "name": "rt",
+                              "fill": "#0F172A",
+                              "content": "轻规则 v1",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "RSGWt",
+                      "name": "mode",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "t7ZFO",
+                          "name": "ml",
+                          "fill": "#334155",
+                          "content": "角色生成",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "yEFhD",
+                          "name": "mv",
+                          "width": "fill_container",
+                          "fill": "#F8FAFC",
+                          "cornerRadius": 8,
+                          "stroke": {
+                            "align": "inside",
+                            "thickness": 1,
+                            "fill": "#CBD5E1"
+                          },
+                          "padding": [
+                            10,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "yilNf",
+                              "name": "mt",
+                              "fill": "#0F172A",
+                              "content": "随机生成",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ymPBD",
+                  "name": "foot",
+                  "width": "fill_container",
+                  "padding": [
+                    8,
+                    0,
+                    0,
+                    0
+                  ],
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "aZN1h",
+                      "name": "hint",
+                      "fill": "#64748B",
+                      "content": "将自动创建初始场景与玩家角色。",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "vONda",
+                      "name": "cta",
+                      "fill": "#0F766E",
+                      "cornerRadius": 8,
+                      "padding": [
+                        12,
+                        8
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "GjeZV",
+                          "name": "ctat",
+                          "fill": "#FFFFFF",
+                          "content": "创建并进入冒险",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
