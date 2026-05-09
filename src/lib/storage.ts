@@ -8,6 +8,8 @@ import type {
   Campaign,
   CampaignDetail,
   CharacterCard,
+  CharacterCreationDraftRecord,
+  CharacterCreationDraftScope,
   CharacterLibraryEntry,
   GameEvent,
   GameMessage,
@@ -29,6 +31,11 @@ export interface GameRepository {
   init(): Promise<void>;
   getSettings(): Promise<AiSettings>;
   saveSettings(settings: AiSettings): Promise<void>;
+  getCharacterCreationDraft(
+    scope: CharacterCreationDraftScope,
+  ): Promise<CharacterCreationDraftRecord | undefined>;
+  saveCharacterCreationDraft(draft: CharacterCreationDraftRecord): Promise<void>;
+  deleteCharacterCreationDraft(scope: CharacterCreationDraftScope): Promise<void>;
   listLibraryCharacters(rulesetId?: string): Promise<CharacterLibraryEntry[]>;
   saveLibraryCharacter(character: CharacterLibraryEntry): Promise<void>;
   deleteLibraryCharacter(characterId: string): Promise<void>;
@@ -89,6 +96,7 @@ interface BrowserStore {
   npcCharacters: NpcCharacter[];
   rulebookDocuments: RulebookDocument[];
   rulebookChunks: RulebookChunk[];
+  characterCreationDrafts: CharacterCreationDraftRecord[];
   messages: GameMessage[];
   events: GameEvent[];
 }
@@ -119,6 +127,7 @@ function emptyStore(): BrowserStore {
     npcCharacters: [],
     rulebookDocuments: [],
     rulebookChunks: [],
+    characterCreationDrafts: [],
     messages: [],
     events: [],
   };
@@ -137,6 +146,8 @@ export class BrowserRepository implements GameRepository {
     this.store.npcCharacters = this.store.npcCharacters ?? [];
     this.store.rulebookDocuments = this.store.rulebookDocuments ?? [];
     this.store.rulebookChunks = this.store.rulebookChunks ?? [];
+    this.store.characterCreationDrafts =
+      this.store.characterCreationDrafts ?? [];
     this.persist();
   }
 
@@ -146,6 +157,35 @@ export class BrowserRepository implements GameRepository {
 
   async saveSettings(settings: AiSettings): Promise<void> {
     this.store.settings = normalizeAiSettings(settings);
+    this.persist();
+  }
+
+  async getCharacterCreationDraft(
+    scope: CharacterCreationDraftScope,
+  ): Promise<CharacterCreationDraftRecord | undefined> {
+    return this.store.characterCreationDrafts.find(
+      (draft) => draft.scope === scope,
+    );
+  }
+
+  async saveCharacterCreationDraft(
+    draft: CharacterCreationDraftRecord,
+  ): Promise<void> {
+    this.store.characterCreationDrafts = [
+      draft,
+      ...this.store.characterCreationDrafts.filter(
+        (item) => item.scope !== draft.scope,
+      ),
+    ];
+    this.persist();
+  }
+
+  async deleteCharacterCreationDraft(
+    scope: CharacterCreationDraftScope,
+  ): Promise<void> {
+    this.store.characterCreationDrafts = this.store.characterCreationDrafts.filter(
+      (draft) => draft.scope !== scope,
+    );
     this.persist();
   }
 
@@ -585,6 +625,37 @@ export class SqliteRepository implements GameRepository {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
       [SETTINGS_KEY, JSON.stringify(normalized), nowIso()],
     );
+  }
+
+  async getCharacterCreationDraft(
+    scope: CharacterCreationDraftScope,
+  ): Promise<CharacterCreationDraftRecord | undefined> {
+    const rows = await this.select<CharacterCreationDraftRow>(
+      "SELECT * FROM character_creation_drafts WHERE scope = $1 LIMIT 1",
+      [scope],
+    );
+    return rows[0] ? characterCreationDraftFromRow(rows[0]) : undefined;
+  }
+
+  async saveCharacterCreationDraft(
+    draft: CharacterCreationDraftRecord,
+  ): Promise<void> {
+    await this.execute(
+      `INSERT INTO character_creation_drafts (scope, data, updated_at)
+       VALUES ($1,$2,$3)
+       ON CONFLICT(scope) DO UPDATE SET
+       data = excluded.data,
+       updated_at = excluded.updated_at`,
+      [draft.scope, JSON.stringify(draft), draft.updatedAt],
+    );
+  }
+
+  async deleteCharacterCreationDraft(
+    scope: CharacterCreationDraftScope,
+  ): Promise<void> {
+    await this.execute("DELETE FROM character_creation_drafts WHERE scope = $1", [
+      scope,
+    ]);
   }
 
   async listLibraryCharacters(
@@ -1212,6 +1283,10 @@ interface RulebookChunkRow {
   created_at: string;
 }
 
+interface CharacterCreationDraftRow {
+  data: string;
+}
+
 interface MessageRow {
   id: string;
   campaign_id: string;
@@ -1297,6 +1372,12 @@ function rulebookChunkFromRow(row: RulebookChunkRow): RulebookChunk {
     embedding: parseJson(row.embedding, []),
     createdAt: row.created_at,
   };
+}
+
+function characterCreationDraftFromRow(
+  row: CharacterCreationDraftRow,
+): CharacterCreationDraftRecord {
+  return JSON.parse(row.data) as CharacterCreationDraftRecord;
 }
 
 function withoutLibraryLock(

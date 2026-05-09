@@ -14,6 +14,7 @@ import {
 } from "@/lib/ai";
 import { createId, nowIso } from "@/lib/id";
 import { buildRulesRagContext } from "@/lib/rag";
+import type { PineconeUsageEvent } from "@/lib/rag";
 import {
   createEmptyCharacter,
   normalizeGeneratedCharacter,
@@ -31,6 +32,7 @@ import type { GameRepository } from "@/lib/storage";
 export interface PlayTurnStreamHandlers {
   onMessageAppend?: (message: GameMessage) => void;
   onMessageDelta?: (messageId: string, token: string) => void;
+  onPineconeUsage?: (event: PineconeUsageEvent) => void;
 }
 
 export interface NewCampaignInput {
@@ -237,6 +239,7 @@ export async function playTurnStreaming(
     settings,
     detail.campaign.rulesetId,
     action,
+    { onPineconeUsage: handlers.onPineconeUsage },
   );
   const hiddenRulesOutput = await runHiddenRulesJudgeTurn(
     baseDetail,

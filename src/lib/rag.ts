@@ -1,6 +1,10 @@
 import { generateEmbeddings, rerankDocuments } from "@/lib/ai";
 import { createId, nowIso } from "@/lib/id";
-import { searchPineconeRulebook, upsertRulebookToPinecone } from "@/lib/pinecone";
+import {
+  searchPineconeRulebook,
+  upsertRulebookToPinecone,
+  type PineconeUsage,
+} from "@/lib/pinecone";
 import type { GameRepository } from "@/lib/storage";
 import type { AiSettings, RulebookChunk, RulebookDocument } from "@/types";
 
@@ -11,6 +15,15 @@ export interface ImportRulebookInput {
   sourceName: string;
   content: string;
   settings: AiSettings;
+  onPineconeUsage?: (event: PineconeUsageEvent) => void;
+}
+
+export interface PineconeUsageEvent {
+  operation: "import" | "search";
+  usage?: PineconeUsage;
+  hitCount?: number;
+  fallbackToGlobalSearch?: boolean;
+  createdAt: string;
 }
 
 export async function importRulebookDocument(
@@ -54,7 +67,16 @@ export async function importRulebookDocument(
   }));
 
   if (input.settings.rag.source === "pinecone") {
-    await upsertRulebookToPinecone(input.settings.rag, document, rulebookChunks);
+    const usage = await upsertRulebookToPinecone(
+      input.settings.rag,
+      document,
+      rulebookChunks,
+    );
+    input.onPineconeUsage?.({
+      operation: "import",
+      usage,
+      createdAt: nowIso(),
+    });
   }
   await repository.saveRulebookDocument(document, rulebookChunks);
   return document;
@@ -65,6 +87,7 @@ export async function buildRulesRagContext(
   settings: AiSettings,
   rulesetId: string,
   query: string,
+  options: { onPineconeUsage?: (event: PineconeUsageEvent) => void } = {},
 ): Promise<string> {
   if (!settings.rag.enabled || !query.trim()) {
     return "";
@@ -74,6 +97,15 @@ export async function buildRulesRagContext(
     const result = scoped.hits.length
       ? scoped
       : await searchPineconeRulebook(settings.rag, undefined, query);
+    options.onPineconeUsage?.({
+      operation: "search",
+      usage: scoped.hits.length
+        ? scoped.usage
+        : mergePineconeUsage(scoped.usage, result.usage),
+      hitCount: result.hits.length,
+      fallbackToGlobalSearch: !scoped.hits.length,
+      createdAt: nowIso(),
+    });
     return result.hits
       .slice(0, settings.rag.topK)
       .map(
@@ -119,6 +151,22 @@ export async function buildRulesRagContext(
         `[规则片段 ${index + 1} | chunk ${candidate.chunk.chunkIndex + 1} | score ${candidate.score.toFixed(3)}]\n${candidate.chunk.content}`,
     )
     .join("\n\n");
+}
+
+function mergePineconeUsage(
+  current: PineconeUsage | undefined,
+  next: PineconeUsage | undefined,
+): PineconeUsage | undefined {
+  if (!next) {
+    return current;
+  }
+  const merged = { ...(current ?? {}) };
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === "number") {
+      merged[key] = (merged[key] ?? 0) + value;
+    }
+  }
+  return Object.keys(merged).length ? merged : undefined;
 }
 
 export function chunkRulebookText(content: string, chunkSize: number): string[] {

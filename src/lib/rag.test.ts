@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defaultAiSettings, normalizeAiSettings } from "@/lib/ai";
-import { buildRulesRagContext, importRulebookDocument } from "@/lib/rag";
+import {
+  buildRulesRagContext,
+  importRulebookDocument,
+  type PineconeUsageEvent,
+} from "@/lib/rag";
 import { BrowserRepository } from "@/lib/storage";
 
 const store = new Map<string, string>();
@@ -118,6 +122,7 @@ describe("rulebook RAG", () => {
     });
     const repository = new BrowserRepository();
     await repository.init();
+    const usageEvents: PineconeUsageEvent[] = [];
 
     await importRulebookDocument(repository, {
       rulesetId: "light-rules-v1",
@@ -131,12 +136,46 @@ describe("rulebook RAG", () => {
       settings,
       "light-rules-v1",
       "我尝试撬锁。",
+      { onPineconeUsage: (event) => usageEvents.push(event) },
     );
 
     expect(context).toContain("撬锁时使用");
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0].usage?.read_units).toBe(1);
+    expect(usageEvents[0].hitCount).toBe(1);
     expect(requests.some((request) => request.url.includes("/upsert"))).toBe(true);
     expect(requests.some((request) => request.url.includes("/search"))).toBe(true);
     expect(JSON.stringify(requests)).not.toContain("rerank");
+  });
+
+  it("reports Pinecone 429 quota errors with Chinese downgrade guidance", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.includes("/indexes/multi-ai-trpg-rag")) {
+        return jsonResponse({
+          name: "multi-ai-trpg-rag",
+          host: "test-index.svc.pinecone.io",
+          status: { ready: true },
+        });
+      }
+      if (url.includes("/search")) {
+        return new Response("quota exceeded", { status: 429 });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    const settings = normalizeAiSettings({
+      ...defaultAiSettings,
+      rag: {
+        ...defaultAiSettings.rag,
+        source: "pinecone",
+        pineconeApiKey: "pc-test-key",
+      },
+    });
+    const repository = new BrowserRepository();
+    await repository.init();
+
+    await expect(
+      buildRulesRagContext(repository, settings, "light-rules-v1", "我尝试撬锁。"),
+    ).rejects.toThrow(/关闭 Pinecone rerank、减少检索片段数/);
   });
 });
 

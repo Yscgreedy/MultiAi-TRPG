@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bootstrapCampaign, playTurn, playTurnStreaming } from "@/lib/game";
 import { BrowserRepository } from "@/lib/storage";
-import { defaultAiSettings } from "@/lib/ai";
+import { createCharacterCreationSession, defaultAiSettings } from "@/lib/ai";
 import { createEmptyCharacter, toLibraryEntry } from "@/lib/rulesets";
 import type { NpcCharacter } from "@/types";
 
@@ -140,6 +140,49 @@ describe("browser repository fallback", () => {
 
     expect(released[0].lockedByCampaignId).toBeUndefined();
     expect(released[0].lockedByCampaignTitle).toBeUndefined();
+  });
+
+  it("persists and clears GM character creation drafts", async () => {
+    const repository = new BrowserRepository();
+    await repository.init();
+    const session = createCharacterCreationSession("light-rules-v1", "通用", {
+      concept: "失忆侦探",
+      tone: "雾港",
+      profession: "调查员",
+    });
+
+    await repository.saveCharacterCreationDraft({
+      scope: "campaign",
+      session,
+      input: "我还想补一个旧关系。",
+      state: {
+        campaignForm: {
+          title: "雾港失踪案",
+          premise: "旧灯塔",
+          rulesetId: "light-rules-v1",
+          characterConcept: "失忆侦探",
+          characterMode: "gm",
+          existingCharacterId: "",
+        },
+        characterType: "通用",
+      },
+      overlayOpen: true,
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    });
+
+    const restoredRepository = new BrowserRepository();
+    await restoredRepository.init();
+    const restored = await restoredRepository.getCharacterCreationDraft("campaign");
+
+    expect(restored?.session?.id).toBe(session.id);
+    expect(restored?.session?.status).toBe("chatting");
+    expect(restored?.input).toBe("我还想补一个旧关系。");
+    expect(restored?.overlayOpen).toBe(true);
+
+    await restoredRepository.deleteCharacterCreationDraft("campaign");
+    expect(
+      await restoredRepository.getCharacterCreationDraft("campaign"),
+    ).toBeUndefined();
   });
 
   it("persists NPC characters and removes them with the campaign", async () => {

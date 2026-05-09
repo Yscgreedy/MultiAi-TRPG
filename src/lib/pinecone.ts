@@ -35,12 +35,10 @@ interface PineconeSearchResponse {
   result?: {
     hits?: PineconeSearchResult[];
   };
-  usage?: {
-    read_units?: number;
-    rerank_units?: number;
-    embed_total_tokens?: number;
-  };
+  usage?: PineconeUsage;
 }
+
+export type PineconeUsage = Record<string, number | undefined>;
 
 export interface PineconeRulebookHit {
   id: string;
@@ -60,10 +58,11 @@ export async function upsertRulebookToPinecone(
   rag: AiRagSettings,
   document: RulebookDocument,
   chunks: RulebookChunk[],
-): Promise<void> {
+): Promise<PineconeUsage | undefined> {
   validatePineconeSettings(rag);
   const host = await ensurePineconeIndex(rag);
   const namespace = encodeURIComponent(rag.pineconeNamespace.trim());
+  let usage: PineconeUsage | undefined;
   for (let start = 0; start < chunks.length; start += TEXT_UPSERT_BATCH_SIZE) {
     const batch = chunks.slice(start, start + TEXT_UPSERT_BATCH_SIZE);
     const response = await fetch(`https://${host}/records/namespaces/${namespace}/upsert`, {
@@ -87,9 +86,11 @@ export async function upsertRulebookToPinecone(
         .join("\n"),
     });
     if (!response.ok) {
-      throw new Error(`Pinecone 规则书上传失败：${response.status} ${await response.text()}`);
+      throw new Error(await getPineconeHttpError(response, "规则书上传"));
     }
+    usage = mergePineconeUsage(usage, await readPineconeUsage(response));
   }
+  return usage;
 }
 
 export async function searchPineconeRulebook(
@@ -132,7 +133,7 @@ export async function searchPineconeRulebook(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`Pinecone 规则书检索失败：${response.status} ${await response.text()}`);
+    throw new Error(await getPineconeHttpError(response, "规则书检索"));
   }
 
   const data = (await response.json()) as PineconeSearchResponse;
@@ -174,7 +175,9 @@ async function ensurePineconeIndex(rag: AiRagSettings): Promise<string> {
   if (ready?.host && ready.status?.ready !== false) {
     return ready.host;
   }
-  throw new Error("Pinecone Index 正在初始化，请稍后重试。");
+  throw new Error(
+    "Pinecone Index 正在初始化，暂时降级为不使用云端规则书检索。建议等待 1-2 分钟后重试导入或回合检索；如果一直未就绪，请到 Pinecone 控制台检查 index 状态和 region 配置。",
+  );
 }
 
 async function describePineconeIndex(
@@ -188,7 +191,7 @@ async function describePineconeIndex(
     return undefined;
   }
   if (!response.ok) {
-    throw new Error(`Pinecone Index 查询失败：${response.status} ${await response.text()}`);
+    throw new Error(await getPineconeHttpError(response, "Index 查询"));
   }
   return (await response.json()) as PineconeIndexDescription;
 }
@@ -219,7 +222,7 @@ async function createPineconeIndex(rag: AiRagSettings): Promise<void> {
     }),
   });
   if (!response.ok && response.status !== 409) {
-    throw new Error(`Pinecone Index 创建失败：${response.status} ${await response.text()}`);
+    throw new Error(await getPineconeHttpError(response, "Index 创建"));
   }
 }
 
@@ -250,4 +253,49 @@ function pineconeDataHeaders(rag: AiRagSettings): HeadersInit {
     "X-Pinecone-API-Version": PINECONE_API_VERSION,
     "content-type": "application/json",
   };
+}
+
+async function getPineconeHttpError(response: Response, action: string): Promise<string> {
+  const detail = await response.text();
+  if (response.status === 429) {
+    return `Pinecone ${action}被限流或额度不足，已降级为本次不使用 Pinecone RAG。建议先关闭 Pinecone rerank、减少检索片段数，或等待 Starter 额度/速率限制恢复；需要持续使用时请升级 Pinecone 计划。${formatPineconeDetail(detail)}`;
+  }
+  if (response.status === 404 || response.status === 409 || response.status === 503) {
+    return `Pinecone ${action}暂不可用，可能是 Index 还没创建完成或尚未就绪。建议等待 1-2 分钟后重试，并确认 Index 名称、Cloud/Region 与控制台一致。${formatPineconeDetail(detail)}`;
+  }
+  return `Pinecone ${action}失败：HTTP ${response.status}。${formatPineconeDetail(detail)}`;
+}
+
+function formatPineconeDetail(detail: string): string {
+  const trimmed = detail.trim();
+  return trimmed ? `\nPinecone 返回：${trimmed}` : "";
+}
+
+async function readPineconeUsage(response: Response): Promise<PineconeUsage | undefined> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return undefined;
+  }
+  try {
+    const data = (await response.clone().json()) as { usage?: PineconeUsage };
+    return data.usage;
+  } catch {
+    return undefined;
+  }
+}
+
+function mergePineconeUsage(
+  current: PineconeUsage | undefined,
+  next: PineconeUsage | undefined,
+): PineconeUsage | undefined {
+  if (!next) {
+    return current;
+  }
+  const merged = { ...(current ?? {}) };
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === "number") {
+      merged[key] = (merged[key] ?? 0) + value;
+    }
+  }
+  return Object.keys(merged).length ? merged : undefined;
 }

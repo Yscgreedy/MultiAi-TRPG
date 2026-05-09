@@ -5,6 +5,7 @@ import {
   ArchiveIcon,
   BookOpenIcon,
   BotIcon,
+  ChevronDownIcon,
   DatabaseIcon,
   Dice5Icon,
   ExternalLinkIcon,
@@ -45,7 +46,11 @@ import {
   toLibraryEntry,
 } from "@/lib/rulesets";
 import { createRepository, type GameRepository } from "@/lib/storage";
-import { buildRulesRagContext, importRulebookDocument } from "@/lib/rag";
+import {
+  buildRulesRagContext,
+  importRulebookDocument,
+  type PineconeUsageEvent,
+} from "@/lib/rag";
 import { PINECONE_USAGE_URL } from "@/lib/pinecone";
 import {
   getDisplayFilePath,
@@ -53,6 +58,18 @@ import {
   readRulebookFiles,
 } from "@/lib/rulebook-files";
 import { createId, nowIso } from "@/lib/id";
+import {
+  applyPreferences,
+  createProviderAvailableStatus,
+  createProviderCheckingStatus,
+  createProviderUnavailableStatus,
+  loadPreferences,
+  preferencesKey,
+  type AccentColor,
+  type AppPreferences,
+  type ProviderStatus,
+  type ThemeMode,
+} from "@/lib/ui-state";
 import type {
   AiAgentConfig,
   AiProviderConfig,
@@ -74,6 +91,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -137,28 +159,6 @@ const defaultSeed = {
   profession: "",
 };
 
-type ThemeMode = "system" | "light" | "dark";
-type AccentColor = "teal" | "indigo" | "rose" | "amber";
-
-interface AppPreferences {
-  themeMode: ThemeMode;
-  accentColor: AccentColor;
-  compactMode: boolean;
-  displayName: string;
-  avatarText: string;
-  avatarUrl: string;
-}
-
-const preferencesKey = "multi-ai-trpg-preferences";
-const defaultPreferences: AppPreferences = {
-  themeMode: "system",
-  accentColor: "teal",
-  compactMode: false,
-  displayName: "玩家",
-  avatarText: "旅",
-  avatarUrl: "",
-};
-
 const accentOptions: Array<{ value: AccentColor; label: string }> = [
   { value: "teal", label: "青绿" },
   { value: "indigo", label: "靛蓝" },
@@ -196,6 +196,10 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fetchingProviderId, setFetchingProviderId] = useState<string>();
   const [testingProviderId, setTestingProviderId] = useState<string>();
+  const [providerStatuses, setProviderStatuses] = useState<Record<string, ProviderStatus>>(
+    {},
+  );
+  const [pineconeUsage, setPineconeUsage] = useState<PineconeUsageEvent>();
   const [preferences, setPreferences] = useState<AppPreferences>(() =>
     loadPreferences(),
   );
@@ -264,14 +268,62 @@ function App() {
         const repository = createRepository();
         repositoryRef.current = repository;
         await repository.init();
-        const [storedSettings, storedCampaigns] = await Promise.all([
+        const [
+          storedSettings,
+          storedCampaigns,
+          storedLibraryCreationDraft,
+          storedCampaignCreationDraft,
+        ] = await Promise.all([
           repository.getSettings(),
           repository.listCampaigns(),
+          repository.getCharacterCreationDraft("library"),
+          repository.getCharacterCreationDraft("campaign"),
         ]);
         setSettings(storedSettings);
         setCampaigns(storedCampaigns);
         setLibraryCharacters(await repository.listLibraryCharacters());
-        setRulebookDocuments(await repository.listRulebookDocuments());
+        const storedRulebookDocuments = await repository.listRulebookDocuments();
+        setRulebookDocuments(storedRulebookDocuments);
+        if (
+          storedLibraryCreationDraft &&
+          storedLibraryCreationDraft.session?.status !== "completed"
+        ) {
+          setLibraryCreationSession(storedLibraryCreationDraft.session);
+          setLibraryCreationInput(storedLibraryCreationDraft.input);
+          setLibraryRulesetId(
+            readStringState(
+              storedLibraryCreationDraft.state.rulesetId,
+              "light-rules-v1",
+            ),
+          );
+          setSeed({
+            ...defaultSeed,
+            ...readObjectState<typeof defaultSeed>(
+              storedLibraryCreationDraft.state.seed,
+            ),
+          });
+        }
+        if (
+          storedCampaignCreationDraft &&
+          storedCampaignCreationDraft.session?.status !== "completed"
+        ) {
+          setCampaignCreationSession(storedCampaignCreationDraft.session);
+          setCampaignCreationInput(storedCampaignCreationDraft.input);
+          setCampaignForm({
+            ...defaultCampaignForm,
+            ...readObjectState<typeof defaultCampaignForm>(
+              storedCampaignCreationDraft.state.campaignForm,
+            ),
+          });
+        }
+        const restoredOverlay = storedLibraryCreationDraft?.overlayOpen
+          ? "library"
+          : storedCampaignCreationDraft?.overlayOpen
+            ? "campaign"
+            : null;
+        if (restoredOverlay) {
+          setCreationOverlay(restoredOverlay);
+        }
         if (storedCampaigns[0]) {
           setDetail(await repository.getCampaignDetail(storedCampaigns[0].id));
         }
@@ -286,6 +338,88 @@ function App() {
 
     void boot();
   }, []);
+
+  useEffect(() => {
+    if (loading || !repositoryRef.current) {
+      return;
+    }
+    const repository = repositoryRef.current;
+    async function persist() {
+      if (
+        !libraryCreationSession ||
+        libraryCreationSession.status === "completed"
+      ) {
+        if (!libraryCreationInput.trim()) {
+          await repository.deleteCharacterCreationDraft("library");
+          return;
+        }
+      }
+      await repository.saveCharacterCreationDraft({
+        scope: "library",
+        session:
+          libraryCreationSession?.status === "completed"
+            ? null
+            : libraryCreationSession,
+        input: libraryCreationInput,
+        state: {
+          rulesetId: libraryRulesetId,
+          characterType: libraryCharacterType,
+          seed,
+        },
+        overlayOpen: creationOverlay === "library",
+        updatedAt: nowIso(),
+      });
+    }
+    void persist();
+  }, [
+    creationOverlay,
+    libraryCharacterType,
+    libraryCreationInput,
+    libraryCreationSession,
+    libraryRulesetId,
+    loading,
+    seed,
+  ]);
+
+  useEffect(() => {
+    if (loading || !repositoryRef.current) {
+      return;
+    }
+    const repository = repositoryRef.current;
+    async function persist() {
+      if (
+        !campaignCreationSession ||
+        campaignCreationSession.status === "completed"
+      ) {
+        if (!campaignCreationInput.trim()) {
+          await repository.deleteCharacterCreationDraft("campaign");
+          return;
+        }
+      }
+      await repository.saveCharacterCreationDraft({
+        scope: "campaign",
+        session:
+          campaignCreationSession?.status === "completed"
+            ? null
+            : campaignCreationSession,
+        input: campaignCreationInput,
+        state: {
+          campaignForm,
+          characterType: campaignCharacterType,
+        },
+        overlayOpen: creationOverlay === "campaign",
+        updatedAt: nowIso(),
+      });
+    }
+    void persist();
+  }, [
+    campaignCharacterType,
+    campaignCreationInput,
+    campaignCreationSession,
+    campaignForm,
+    creationOverlay,
+    loading,
+  ]);
 
   async function reloadCampaigns(nextCampaignId?: string | null) {
     const repository = requireRepository();
@@ -331,9 +465,13 @@ function App() {
         ]
           .filter(Boolean)
           .join("\n"),
+        { onPineconeUsage: setPineconeUsage },
       );
     } catch (error) {
       console.warn("制卡规则书 RAG 检索失败，继续使用模板制卡。", error);
+      toast.warning(
+        `${getErrorMessage(error, "制卡规则书 RAG 检索失败")} 已降级为仅使用角色卡模板制卡。`,
+      );
       return "";
     }
   }
@@ -451,13 +589,10 @@ function App() {
       });
       const entry = toLibraryEntry(character, "ai");
       await requireRepository().saveLibraryCharacter(entry);
+      await requireRepository().deleteCharacterCreationDraft("library");
       setEditingCharacter(entry);
-      setLibraryCreationSession({
-        ...libraryCreationSession,
-        draft: character,
-        status: "completed",
-        updatedAt: nowIso(),
-      });
+      setLibraryCreationSession(null);
+      setLibraryCreationInput("");
       setCreationOverlay(null);
       await reloadLibrary();
       toast.success("制卡 GM 已完成角色卡并加入角色库。");
@@ -581,6 +716,7 @@ function App() {
         ...campaignCreationSession,
         status: "generating",
       });
+      await requireRepository().deleteCharacterCreationDraft("campaign");
       setCampaignCreationSession({
         ...campaignCreationSession,
         draft: character,
@@ -643,6 +779,8 @@ function App() {
       });
       setDetail(nextDetail);
       setCampaignCreationSession(null);
+      setCampaignCreationInput("");
+      await requireRepository().deleteCharacterCreationDraft("campaign");
       await reloadCampaigns(nextDetail.campaign.id);
       toast.success("战役已创建，可以从这里断点续玩。");
     } catch (error) {
@@ -710,6 +848,7 @@ function App() {
         sourceName: rulebook.sourceName,
         content: rulebook.content,
         settings,
+        onPineconeUsage: setPineconeUsage,
       });
       setRulebookFiles([]);
       await reloadRulebooks();
@@ -850,14 +989,27 @@ function App() {
     }
 
     setTestingProviderId(providerId);
+    setProviderStatuses((statuses) => ({
+      ...statuses,
+      [providerId]: createProviderCheckingStatus(),
+    }));
     try {
       const result = await testProviderConnection(provider);
-      toast.success(
-        `${result.providerName} 可用：${result.model}，${result.latencyMs}ms，响应「${result.content.slice(0, 24)}」。`,
-      );
+      setProviderStatuses((statuses) => ({
+        ...statuses,
+        [providerId]: createProviderAvailableStatus(
+          result.model,
+          result.latencyMs,
+          `响应「${result.content.slice(0, 24)}」`,
+        ),
+      }));
     } catch (error) {
-      console.error("测试 Provider 失败", error);
-      toast.error(getErrorMessage(error, "测试 Provider 失败"));
+      setProviderStatuses((statuses) => ({
+        ...statuses,
+        [providerId]: createProviderUnavailableStatus(
+          getErrorMessage(error, "测试 Provider 失败"),
+        ),
+      }));
     } finally {
       setTestingProviderId(undefined);
     }
@@ -897,6 +1049,7 @@ function App() {
                 : current,
             );
           },
+          onPineconeUsage: setPineconeUsage,
         },
       );
       setDetail(nextDetail);
@@ -1242,8 +1395,10 @@ function App() {
             <SettingsSheet
               settings={settings}
               busy={busy}
+              pineconeUsage={pineconeUsage}
               fetchingProviderId={fetchingProviderId}
               testingProviderId={testingProviderId}
+              providerStatuses={providerStatuses}
               onChange={setSettings}
               onSave={handleSaveSettings}
               onFetchProviderModels={handleFetchProviderModels}
@@ -1307,6 +1462,7 @@ function App() {
             <RulebookPage
               busy={busy || importingRulebook}
               settings={settings}
+              pineconeUsage={pineconeUsage}
               category={rulebookCategory}
               categories={getRulebookCategories(rulebookDocuments)}
               characterType={rulebookCharacterType}
@@ -1405,7 +1561,11 @@ function App() {
           onStart={handleStartLibraryCreation}
           onSend={handleSendLibraryCreationMessage}
           onFinalize={handleFinalizeLibraryCreation}
-          onReset={() => setLibraryCreationSession(null)}
+          onReset={() => {
+            setLibraryCreationSession(null);
+            setLibraryCreationInput("");
+            void requireRepository().deleteCharacterCreationDraft("library");
+          }}
           onClose={() => setCreationOverlay(null)}
         />
       )}
@@ -1420,7 +1580,11 @@ function App() {
           onStart={handleStartCampaignCreation}
           onSend={handleSendCampaignCreationMessage}
           onFinalize={handleFinalizeCampaignCreation}
-          onReset={() => setCampaignCreationSession(null)}
+          onReset={() => {
+            setCampaignCreationSession(null);
+            setCampaignCreationInput("");
+            void requireRepository().deleteCharacterCreationDraft("campaign");
+          }}
           onClose={() => setCreationOverlay(null)}
         />
       )}
@@ -1483,32 +1647,14 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function loadPreferences(): AppPreferences {
-  const raw = localStorage.getItem(preferencesKey);
-  if (!raw) {
-    return defaultPreferences;
-  }
-
-  try {
-    return {
-      ...defaultPreferences,
-      ...(JSON.parse(raw) as Partial<AppPreferences>),
-    };
-  } catch {
-    return defaultPreferences;
-  }
+function readStringState(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
 }
 
-function applyPreferences(preferences: AppPreferences): void {
-  const root = document.documentElement;
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const useDark =
-    preferences.themeMode === "dark" ||
-    (preferences.themeMode === "system" && prefersDark);
-
-  root.classList.toggle("dark", useDark);
-  root.classList.toggle("compact", preferences.compactMode);
-  root.dataset.accent = preferences.accentColor;
+function readObjectState<T extends object>(value: unknown): Partial<T> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Partial<T>)
+    : {};
 }
 
 function CharacterLibraryPage({
@@ -2121,6 +2267,7 @@ function CharacterCreationOverlay({
 function RulebookPage({
   busy,
   settings,
+  pineconeUsage,
   category,
   categories,
   characterType,
@@ -2135,6 +2282,7 @@ function RulebookPage({
 }: {
   busy: boolean;
   settings?: AiSettings;
+  pineconeUsage?: PineconeUsageEvent;
   category: string;
   categories: string[];
   characterType: string;
@@ -2342,6 +2490,9 @@ function RulebookPage({
                 请在 AI 设置里启用 RAG，并完成当前 RAG 分支的必填配置。
               </AlertDescription>
             </Alert>
+          )}
+          {settings?.rag.source === "pinecone" && (
+            <PineconeUsageAlert usageEvent={pineconeUsage} />
           )}
         </CardContent>
       </Card>
@@ -2761,8 +2912,10 @@ function AvatarPreview({
 function SettingsSheet({
   settings,
   busy,
+  pineconeUsage,
   fetchingProviderId,
   testingProviderId,
+  providerStatuses,
   onChange,
   onSave,
   onFetchProviderModels,
@@ -2770,8 +2923,10 @@ function SettingsSheet({
 }: {
   settings?: AiSettings;
   busy: boolean;
+  pineconeUsage?: PineconeUsageEvent;
   fetchingProviderId?: string;
   testingProviderId?: string;
+  providerStatuses: Record<string, ProviderStatus>;
   onChange: (settings: AiSettings) => void;
   onSave: () => void;
   onFetchProviderModels: (providerId: string) => void;
@@ -2798,8 +2953,10 @@ function SettingsSheet({
           <SettingsForm
             settings={settings}
             busy={busy}
+            pineconeUsage={pineconeUsage}
             fetchingProviderId={fetchingProviderId}
             testingProviderId={testingProviderId}
+            providerStatuses={providerStatuses}
             onChange={onChange}
             onSave={onSave}
             onFetchProviderModels={onFetchProviderModels}
@@ -2814,8 +2971,10 @@ function SettingsSheet({
 function SettingsForm({
   settings,
   busy,
+  pineconeUsage,
   fetchingProviderId,
   testingProviderId,
+  providerStatuses,
   onChange,
   onSave,
   onFetchProviderModels,
@@ -2823,8 +2982,10 @@ function SettingsForm({
 }: {
   settings: AiSettings;
   busy: boolean;
+  pineconeUsage?: PineconeUsageEvent;
   fetchingProviderId?: string;
   testingProviderId?: string;
+  providerStatuses: Record<string, ProviderStatus>;
   onChange: (settings: AiSettings) => void;
   onSave: () => void;
   onFetchProviderModels: (providerId: string) => void;
@@ -2832,23 +2993,21 @@ function SettingsForm({
 }) {
   return (
     <FieldGroup>
-      <FieldSet>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <FieldLabel>Provider</FieldLabel>
-            <FieldDescription>
-              每个 Provider 都是一个 OpenAI-compatible API 端点，可独立保存模型列表。
-            </FieldDescription>
-          </div>
+      <SettingsSection
+        title="Provider"
+        description="每个 Provider 都是一个 OpenAI-compatible API 端点，可独立保存模型列表。"
+        defaultOpen
+        action={
           <Button
             variant="outline"
             onClick={() => onChange(addProvider(settings))}
             disabled={busy}
           >
             <PlusIcon data-icon="inline-start" />
-            添加 Provider
+            添加
           </Button>
-        </div>
+        }
+      >
         <div className="flex flex-col gap-4">
           {settings.providers.map((provider, index) => (
             <ProviderEditor
@@ -2856,6 +3015,7 @@ function SettingsForm({
               provider={provider}
               index={index}
               settings={settings}
+              status={providerStatuses[provider.id]}
               busy={busy}
               isFetching={fetchingProviderId === provider.id}
               isTesting={testingProviderId === provider.id}
@@ -2865,7 +3025,7 @@ function SettingsForm({
             />
           ))}
         </div>
-      </FieldSet>
+      </SettingsSection>
       <Field>
         <FieldLabel htmlFor="default-provider">默认 Provider</FieldLabel>
         <Select
@@ -2891,11 +3051,10 @@ function SettingsForm({
           角色卡自动生成和未单独指定 Provider 的任务会使用这里的 Provider。
         </FieldDescription>
       </Field>
-      <FieldSet>
-        <FieldLabel>AI 角色模型</FieldLabel>
-        <FieldDescription>
-          每个角色可以选择来自不同 Provider 的模型；关闭开关后，该角色不会参与回合。
-        </FieldDescription>
+      <SettingsSection
+        title="AI 角色模型"
+        description="每个角色可以选择来自不同 Provider 的模型；关闭开关后，该角色不会参与回合。"
+      >
         {settings.agents.map((agent, index) => (
           <Field key={agent.role} orientation="horizontal">
             <Switch
@@ -2966,12 +3125,12 @@ function SettingsForm({
             </div>
           </Field>
         ))}
-      </FieldSet>
-      <FieldSet>
-        <FieldLabel>规则书 RAG</FieldLabel>
-        <FieldDescription>
-          选择本地 OpenAI-compatible 向量，或让 Pinecone 托管 embedding、检索和可选 rerank。
-        </FieldDescription>
+      </SettingsSection>
+      <SettingsSection
+        title="规则书 RAG"
+        description="选择本地 OpenAI-compatible 向量，或让 Pinecone 托管 embedding、检索和可选 rerank。"
+        defaultOpen={settings.rag.enabled}
+      >
         <Field orientation="horizontal">
           <Switch
             checked={settings.rag.enabled}
@@ -3014,7 +3173,11 @@ function SettingsForm({
           </FieldDescription>
         </Field>
         {settings.rag.source === "pinecone" ? (
-          <PineconeRagSettings settings={settings} onChange={onChange} />
+          <PineconeRagSettings
+            settings={settings}
+            usageEvent={pineconeUsage}
+            onChange={onChange}
+          />
         ) : (
           <LocalRagSettings settings={settings} onChange={onChange} />
         )}
@@ -3054,12 +3217,61 @@ function SettingsForm({
             />
           </Field>
         </div>
-      </FieldSet>
+      </SettingsSection>
       <Button onClick={onSave} disabled={busy}>
         <SaveIcon data-icon="inline-start" />
         保存设置
       </Button>
     </FieldGroup>
+  );
+}
+
+function SettingsSection({
+  title,
+  description,
+  defaultOpen = false,
+  action,
+  children,
+}: {
+  title: string;
+  description?: string;
+  defaultOpen?: boolean;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <FieldSet className="rounded-lg border p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto min-w-0 flex-1 justify-start px-0 py-0 text-left hover:bg-transparent"
+            >
+              <ChevronDownIcon
+                data-icon="inline-start"
+                className={`transition-transform ${open ? "" : "-rotate-90"}`}
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{title}</span>
+                {description && (
+                  <span className="mt-1 block whitespace-normal text-sm font-normal text-muted-foreground">
+                    {description}
+                  </span>
+                )}
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          {action}
+        </div>
+        <CollapsibleContent className="data-closed:animate-out data-open:animate-in data-closed:fade-out-0 data-open:fade-in-0 data-closed:slide-out-to-top-1 data-open:slide-in-from-top-1">
+          <div className="pt-1">{children}</div>
+        </CollapsibleContent>
+      </FieldSet>
+    </Collapsible>
   );
 }
 
@@ -3169,9 +3381,11 @@ function LocalRagSettings({
 
 function PineconeRagSettings({
   settings,
+  usageEvent,
   onChange,
 }: {
   settings: AiSettings;
+  usageEvent?: PineconeUsageEvent;
   onChange: (settings: AiSettings) => void;
 }) {
   return (
@@ -3358,14 +3572,76 @@ function PineconeRagSettings({
           查看 read units、write units、embedding tokens 和 rerank requests。
         </AlertDescription>
       </Alert>
+      <PineconeUsageAlert usageEvent={usageEvent} />
     </div>
   );
+}
+
+function PineconeUsageAlert({
+  usageEvent,
+}: {
+  usageEvent?: PineconeUsageEvent;
+}) {
+  const usageEntries = formatPineconeUsageEntries(usageEvent);
+  return (
+    <Alert>
+      <DatabaseIcon />
+      <AlertTitle>最近一次 Pinecone 运行反馈</AlertTitle>
+      <AlertDescription>
+        {usageEvent ? (
+          <div className="flex flex-col gap-2">
+            <div>
+              {usageEvent.operation === "search" ? "检索" : "导入"}于{" "}
+              {new Date(usageEvent.createdAt).toLocaleString()} 完成
+              {typeof usageEvent.hitCount === "number"
+                ? `，返回 ${usageEvent.hitCount} 个候选片段`
+                : ""}
+              {usageEvent.fallbackToGlobalSearch
+                ? "；当前规则书库没有命中，已自动改用全局规则书库检索"
+                : ""}
+              。
+            </div>
+            {usageEntries.length ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {usageEntries.map(([key, value]) => (
+                  <div key={key} className="rounded-md border bg-background px-3 py-2">
+                    <div className="text-xs text-muted-foreground">{key}</div>
+                    <div className="font-mono text-sm">{value}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div>
+                Pinecone 本次响应没有返回 usage 字段。导入通常不会稳定返回单次用量；回合检索成功后这里会显示
+                read_units、rerank_units 等可用字段。
+              </div>
+            )}
+          </div>
+        ) : (
+          "尚未捕获到本次会话的 Pinecone usage。完成一次规则书检索后，这里会显示 read_units、rerank_units、embed_total_tokens 等 Pinecone 返回的字段。"
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function formatPineconeUsageEntries(
+  usageEvent?: PineconeUsageEvent,
+): Array<[string, string]> {
+  if (!usageEvent?.usage) {
+    return [];
+  }
+  return Object.entries(usageEvent.usage)
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [key, value.toLocaleString()]);
 }
 
 function ProviderEditor({
   provider,
   index,
   settings,
+  status,
   busy,
   isFetching,
   isTesting,
@@ -3376,6 +3652,7 @@ function ProviderEditor({
   provider: AiProviderConfig;
   index: number;
   settings: AiSettings;
+  status?: ProviderStatus;
   busy: boolean;
   isFetching: boolean;
   isTesting: boolean;
@@ -3384,143 +3661,213 @@ function ProviderEditor({
   onTestProvider: (providerId: string) => void;
 }) {
   const canRemove = settings.providers.length > 1;
+  const [open, setOpen] = useState(index === 0);
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border p-3">
-      <div className="flex items-center justify-between gap-3">
-        <Badge variant="secondary">Provider {index + 1}</Badge>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => onFetchProviderModels(provider.id)}
-            disabled={busy || isFetching || isTesting}
-          >
-            <RefreshCwIcon data-icon="inline-start" />
-            {isFetching ? "获取中" : "获取模型"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => onTestProvider(provider.id)}
-            disabled={busy || isFetching || isTesting}
-          >
-            <PlayIcon data-icon="inline-start" />
-            {isTesting ? "测试中" : "测试"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onChange(removeProvider(settings, provider.id))}
-            disabled={busy || isFetching || isTesting || !canRemove}
-          >
-            <Trash2Icon />
-            <span className="sr-only">删除 Provider</span>
-          </Button>
-        </div>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Field>
-          <FieldLabel htmlFor={`${provider.id}-name`}>名称</FieldLabel>
-          <Input
-            id={`${provider.id}-name`}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={provider.name}
-            onChange={(event) =>
-              onChange(updateProvider(settings, provider.id, { name: event.target.value }))
-            }
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={`${provider.id}-default`}>默认模型</FieldLabel>
-          <div className="flex gap-2">
-            <Select
-              value={provider.defaultModel || undefined}
-              onValueChange={(defaultModel) =>
-                onChange(updateProvider(settings, provider.id, { defaultModel }))
-              }
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="flex flex-col gap-3 rounded-lg border p-3">
+        <div className="flex flex-col gap-3">
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto min-w-0 flex-1 justify-start gap-2 px-0 py-0 text-left hover:bg-transparent"
             >
-              <SelectTrigger id={`${provider.id}-default`} className="min-w-0 flex-1">
-                <SelectValue placeholder="从模型列表选择" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectLabel>{provider.name}</SelectLabel>
-                  {provider.models.map((model) => (
-                    <SelectItem key={model} value={model}>
-                      {model}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <Input
-              className="min-w-0 flex-1"
-              value={provider.defaultModel ?? ""}
-              placeholder="或手动输入"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) =>
-                onChange(
-                  updateProvider(settings, provider.id, {
-                    defaultModel: event.target.value,
-                  }),
-                )
-              }
-            />
+              <ChevronDownIcon
+                data-icon="inline-start"
+                className={`transition-transform ${open ? "" : "-rotate-90"}`}
+              />
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">Provider {index + 1}</Badge>
+                  <span className="truncate text-sm font-medium">{provider.name}</span>
+                </span>
+                <ProviderStatusLine status={status} defaultModel={provider.defaultModel} />
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          <div className="flex flex-wrap items-center gap-2 pl-7">
+            <Button
+              variant="outline"
+              onClick={() => onFetchProviderModels(provider.id)}
+              disabled={busy || isFetching || isTesting}
+            >
+              <RefreshCwIcon data-icon="inline-start" />
+              {isFetching ? "获取中" : "获取模型"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onTestProvider(provider.id)}
+              disabled={busy || isFetching || isTesting}
+            >
+              <PlayIcon data-icon="inline-start" />
+              {isTesting ? "测试中" : "测试"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onChange(removeProvider(settings, provider.id))}
+              disabled={busy || isFetching || isTesting || !canRemove}
+            >
+              <Trash2Icon />
+              <span className="sr-only">删除 Provider</span>
+            </Button>
           </div>
-          <FieldDescription>
-            手动输入不会写入“已获取模型”；点击“获取模型”后可直接从列表选择。
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={`${provider.id}-base-url`}>Base URL</FieldLabel>
-          <Input
-            id={`${provider.id}-base-url`}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={provider.baseUrl}
-            onChange={(event) =>
-              onChange(
-                updateProvider(settings, provider.id, { baseUrl: event.target.value }),
-              )
-            }
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={`${provider.id}-api-key`}>API Key</FieldLabel>
-          <Input
-            id={`${provider.id}-api-key`}
-            type="password"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={provider.apiKey}
-            onChange={(event) =>
-              onChange(updateProvider(settings, provider.id, { apiKey: event.target.value }))
-            }
-          />
-        </Field>
-      </div>
-      <Field>
-        <FieldLabel>已获取模型</FieldLabel>
-        <div className="flex max-h-24 flex-wrap gap-2 overflow-auto rounded-lg border p-2">
-          {provider.models.length ? (
-            provider.models.map((model) => (
-              <Badge key={model} variant="outline">
-                {model}
-              </Badge>
-            ))
-          ) : (
-            <span className="text-sm text-muted-foreground">
-              暂无模型，点击“获取模型”或先填写默认模型。
-            </span>
-          )}
         </div>
-      </Field>
-    </div>
+        <CollapsibleContent className="data-closed:animate-out data-open:animate-in data-closed:fade-out-0 data-open:fade-in-0 data-closed:slide-out-to-top-1 data-open:slide-in-from-top-1">
+          <div className="grid gap-3 pt-1 md:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor={`${provider.id}-name`}>名称</FieldLabel>
+              <Input
+                id={`${provider.id}-name`}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={provider.name}
+                onChange={(event) =>
+                  onChange(updateProvider(settings, provider.id, { name: event.target.value }))
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${provider.id}-default`}>默认模型</FieldLabel>
+              <div className="flex gap-2">
+                <Select
+                  value={provider.defaultModel || undefined}
+                  onValueChange={(defaultModel) =>
+                    onChange(updateProvider(settings, provider.id, { defaultModel }))
+                  }
+                >
+                  <SelectTrigger id={`${provider.id}-default`} className="min-w-0 flex-1">
+                    <SelectValue placeholder="从模型列表选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>{provider.name}</SelectLabel>
+                      {provider.models.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <Input
+                  className="min-w-0 flex-1"
+                  value={provider.defaultModel ?? ""}
+                  placeholder="或手动输入"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(event) =>
+                    onChange(
+                      updateProvider(settings, provider.id, {
+                        defaultModel: event.target.value,
+                      }),
+                    )
+                  }
+                />
+              </div>
+              <FieldDescription>
+                手动输入不会写入“已获取模型”；点击“获取模型”后可直接从列表选择。
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${provider.id}-base-url`}>Base URL</FieldLabel>
+              <Input
+                id={`${provider.id}-base-url`}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={provider.baseUrl}
+                onChange={(event) =>
+                  onChange(
+                    updateProvider(settings, provider.id, { baseUrl: event.target.value }),
+                  )
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`${provider.id}-api-key`}>API Key</FieldLabel>
+              <Input
+                id={`${provider.id}-api-key`}
+                type="password"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={provider.apiKey}
+                onChange={(event) =>
+                  onChange(updateProvider(settings, provider.id, { apiKey: event.target.value }))
+                }
+              />
+            </Field>
+          </div>
+          <Field className="pt-3">
+            <FieldLabel>已获取模型</FieldLabel>
+            <div className="flex max-h-24 flex-wrap gap-2 overflow-auto rounded-lg border p-2">
+              {provider.models.length ? (
+                provider.models.map((model) => (
+                  <Badge key={model} variant="outline">
+                    {model}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  暂无模型，点击“获取模型”或先填写默认模型。
+                </span>
+              )}
+            </div>
+          </Field>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function ProviderStatusLine({
+  status,
+  defaultModel,
+}: {
+  status?: ProviderStatus;
+  defaultModel?: string;
+}) {
+  const currentStatus = status ?? { state: "unknown" as const };
+  const colorClass =
+    currentStatus.state === "available"
+      ? "bg-emerald-500"
+      : currentStatus.state === "unavailable"
+        ? "bg-destructive"
+        : currentStatus.state === "checking"
+          ? "bg-amber-500"
+          : "bg-muted-foreground";
+  const label =
+    currentStatus.state === "available"
+      ? `可用${currentStatus.latencyMs ? ` · ${currentStatus.latencyMs}ms` : ""}`
+      : currentStatus.state === "unavailable"
+        ? "不可用"
+        : currentStatus.state === "checking"
+          ? "检查中"
+          : "未测试";
+  const detail =
+    currentStatus.message ??
+    currentStatus.model ??
+    (defaultModel ? `默认 ${defaultModel}` : "填写后可测试服务可用性");
+  const checkedAt = currentStatus.checkedAt
+    ? new Date(currentStatus.checkedAt).toLocaleTimeString()
+    : "";
+
+  return (
+    <span className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <span
+        aria-hidden="true"
+        className={`size-2 rounded-full ${colorClass} ${
+          currentStatus.state === "checking" ? "animate-pulse" : ""
+        }`}
+      />
+      <span>{label}</span>
+      <span className="min-w-0 truncate">{detail}</span>
+      {checkedAt && <span>{checkedAt}</span>}
+    </span>
   );
 }
 
@@ -3661,7 +4008,7 @@ function GameConsole({
               <ScrollArea className="min-h-[280px] flex-1 rounded-lg border">
                 <div className="flex flex-col gap-3 p-4">
                   {detail.messages.map((message) => (
-                    <div key={message.id} className="rounded-lg border bg-card p-3">
+                    <div key={message.id} className="message-card rounded-lg border bg-card p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <MessageAuthorBadge message={message} detail={detail} />
                         <span className="text-xs text-muted-foreground">

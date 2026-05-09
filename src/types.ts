@@ -65,6 +65,17 @@ export interface CharacterCreationSession {
   updatedAt: string;
 }
 
+export type CharacterCreationDraftScope = "library" | "campaign";
+
+export interface CharacterCreationDraftRecord {
+  scope: CharacterCreationDraftScope;
+  session: CharacterCreationSession | null;
+  input: string;
+  state: Record<string, unknown>;
+  overlayOpen: boolean;
+  updatedAt: string;
+}
+
 export interface NpcCharacter extends CharacterCard {
   campaignId: string;
   kind: "npc";

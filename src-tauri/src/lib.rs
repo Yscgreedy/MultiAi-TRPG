@@ -292,6 +292,18 @@ fn migrations() -> Vec<Migration> {
             sql: "ALTER TABLE rulebook_documents ADD COLUMN character_type TEXT NOT NULL DEFAULT '通用';",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 25,
+            description: "create_character_creation_drafts",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS character_creation_drafts (
+                scope TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
