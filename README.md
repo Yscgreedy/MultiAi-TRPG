@@ -27,9 +27,11 @@ pnpm tauri dev
 
 ## 主要结构
 
+- `src/App.tsx`：应用根组件，负责顶层状态、路由式页面切换和业务 handler 串联。
+- `src/features/*`：页面和 UI 组件分区；`game/` 为游戏控制台，`characters/` 为角色库和制卡页，`rulebooks/` 为规则书导入，`settings/` 为应用与 AI 设置，`common/` 为共享 UI/helper。
+- `src/lib/game.ts` + `src/lib/game/*`：战役创建、同步/流式回合推进、AI 副作用、工具运行时、快照和设置合并；`game.ts` 保留公共入口。
+- `src/lib/ai.ts` + `src/lib/ai/*`：OpenAI-compatible 设置、provider 连接、chat/stream 解析、prompt 组装、tools、制卡流程和 turn 编排；`ai.ts` 保留公共入口。
+- `src/lib/storage.ts` + `src/lib/storage/*`：`GameRepository` 公共入口、Browser/localStorage fallback、Tauri SQLite 实现、row mapper 和共享存储 helper。
 - `src/lib/rulesets.ts`：轻规则适配器、角色卡 schema、导入导出校验。
-- `src/lib/ai.ts`：OpenAI-compatible 调用、多 AI prompt 组装、角色生成。
 - `src/lib/rag.ts`：规则书切片、embedding 入库、相似度检索和可选 rerank。
-- `src/lib/storage.ts`：Repository 接口、SQLite 实现、浏览器预览 fallback。
-- `src/lib/game.ts`：新建战役、推进回合、断点摘要。
 - `src-tauri/src/lib.rs`：SQLite migrations 和 Tauri 插件注册。
