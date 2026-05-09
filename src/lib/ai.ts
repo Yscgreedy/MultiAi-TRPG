@@ -76,6 +76,7 @@ export const defaultProviders: AiProviderConfig[] = [
 export const defaultAiSettings: AiSettings = {
   providers: defaultProviders,
   defaultProviderId: "openai",
+  responseMode: "complete",
   agents: defaultAgents,
   rag: {
     enabled: true,
@@ -92,6 +93,7 @@ export const defaultAiSettings: AiSettings = {
     pineconeEmbeddingModel: "llama-text-embed-v2",
     pineconeRerankEnabled: false,
     pineconeRerankModel: "bge-reranker-v2-m3",
+    pineconeGlobalFallbackEnabled: true,
     topK: 4,
     chunkSize: 900,
   },
@@ -174,6 +176,7 @@ interface LegacyAiSettings {
   agents?: AiAgentConfig[];
   providers?: AiProviderConfig[];
   defaultProviderId?: string;
+  responseMode?: AiSettings["responseMode"];
   rag?: Partial<AiRagSettings>;
 }
 
@@ -394,6 +397,7 @@ export function normalizeAiSettings(raw: unknown): AiSettings {
   return {
     providers,
     defaultProviderId,
+    responseMode: legacy.responseMode === "fast" ? "fast" : "complete",
     agents,
     rag: normalizeRagSettings(legacy.rag, providers, defaultProviderId),
   };
@@ -432,6 +436,7 @@ function normalizeRagSettings(
     pineconeRerankEnabled: raw?.pineconeRerankEnabled ?? false,
     pineconeRerankModel:
       raw?.pineconeRerankModel?.trim() || "bge-reranker-v2-m3",
+    pineconeGlobalFallbackEnabled: raw?.pineconeGlobalFallbackEnabled ?? true,
     topK: clampInteger(raw?.topK, 1, 12, 4),
     chunkSize: clampInteger(raw?.chunkSize, 300, 2400, 900),
   };

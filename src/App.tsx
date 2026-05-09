@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -46,6 +46,7 @@ import {
   toLibraryEntry,
 } from "@/lib/rulesets";
 import { createRepository, type GameRepository } from "@/lib/storage";
+import { createBufferedMessageDeltaController } from "@/lib/streaming-ui";
 import {
   buildRulesRagContext,
   importRulebookDocument,
@@ -79,6 +80,7 @@ import type {
   CharacterCard,
   CharacterCreationSession,
   CharacterLibraryEntry,
+  GameMessage,
   RulebookDocument,
 } from "@/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -167,6 +169,7 @@ const accentOptions: Array<{ value: AccentColor; label: string }> = [
 ];
 
 const diceExpressions = ["1d4", "1d6", "2d6", "1d8", "1d10", "1d12", "1d20", "1d100"];
+const maxVisiblePlayMessages = 120;
 
 interface DiceRollResult {
   expression: string;
@@ -221,6 +224,9 @@ function App() {
   const [deleteCampaignId, setDeleteCampaignId] = useState<string | null>(null);
   const [playerAction, setPlayerAction] = useState(
     "我检查求救信上的水渍和折痕，寻找寄信人的线索。",
+  );
+  const [streamingMessageIds, setStreamingMessageIds] = useState<Set<string>>(
+    () => new Set(),
   );
 
   const campaignRulebookOptions = useMemo(
@@ -1021,6 +1027,22 @@ function App() {
     }
 
     setBusy(true);
+    setStreamingMessageIds(new Set());
+    const applyMessageDelta = (messageId: string, delta: string) => {
+      setDetail((current) =>
+        current && current.campaign.id === detail.campaign.id
+          ? {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === messageId
+                  ? { ...message, content: `${message.content}${delta}` }
+                  : message,
+              ),
+            }
+          : current,
+      );
+    };
+    const messageDeltaBuffer = createBufferedMessageDeltaController(applyMessageDelta);
     try {
       const nextDetail = await playTurnStreaming(
         requireRepository(),
@@ -1029,6 +1051,9 @@ function App() {
         settings,
         {
           onMessageAppend: (message) => {
+            if (message.author !== "player" && !message.content.trim()) {
+              setStreamingMessageIds((current) => new Set(current).add(message.id));
+            }
             setDetail((current) =>
               current && current.campaign.id === detail.campaign.id
                 ? { ...current, messages: [...current.messages, message] }
@@ -1036,31 +1061,25 @@ function App() {
             );
           },
           onMessageDelta: (messageId, token) => {
-            setDetail((current) =>
-              current && current.campaign.id === detail.campaign.id
-                ? {
-                    ...current,
-                    messages: current.messages.map((message) =>
-                      message.id === messageId
-                        ? { ...message, content: `${message.content}${token}` }
-                        : message,
-                    ),
-                  }
-                : current,
-            );
+            messageDeltaBuffer.push(messageId, token);
           },
           onPineconeUsage: setPineconeUsage,
         },
       );
+      messageDeltaBuffer.flush();
       setDetail(nextDetail);
+      setStreamingMessageIds(new Set());
       await reloadCampaigns(nextDetail.campaign.id);
       setPlayerAction("");
       setProxyOptions([]);
       toast.success("回合已写入存档。");
     } catch (error) {
+      messageDeltaBuffer.flush();
+      setStreamingMessageIds(new Set());
       console.error("回合推进失败", error);
       toast.error(getErrorMessage(error, "回合推进失败"));
     } finally {
+      messageDeltaBuffer.cancel();
       setBusy(false);
     }
   }
@@ -1499,6 +1518,7 @@ function App() {
             <GameConsole
               detail={detail}
               busy={busy}
+              streamingMessageIds={streamingMessageIds}
               communicableAgents={[
                 ...(settings?.agents.filter(
                   (agent) => agent.enabled && agent.role !== "Companion",
@@ -3051,6 +3071,32 @@ function SettingsForm({
           角色卡自动生成和未单独指定 Provider 的任务会使用这里的 Provider。
         </FieldDescription>
       </Field>
+      <Field>
+        <FieldLabel htmlFor="response-mode">战役响应模式</FieldLabel>
+        <Select
+          value={settings.responseMode ?? "complete"}
+          onValueChange={(responseMode) =>
+            onChange(
+              mergeSettings(settings, {
+                responseMode: responseMode === "fast" ? "fast" : "complete",
+              }),
+            )
+          }
+        >
+          <SelectTrigger id="response-mode" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="complete">完整</SelectItem>
+              <SelectItem value="fast">快速</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <FieldDescription>
+          完整模式保留隐藏规裁和记录员；快速模式优先降低首字延迟，跳过本轮后台规裁与记录员。
+        </FieldDescription>
+      </Field>
       <SettingsSection
         title="AI 角色模型"
         description="每个角色可以选择来自不同 Provider 的模型；关闭开关后，该角色不会参与回合。"
@@ -3533,6 +3579,24 @@ function PineconeRagSettings({
           </FieldDescription>
         </div>
       </Field>
+      <Field orientation="horizontal">
+        <Switch
+          checked={settings.rag.pineconeGlobalFallbackEnabled}
+          onCheckedChange={(pineconeGlobalFallbackEnabled) =>
+            onChange(
+              mergeSettings(settings, {
+                rag: { ...settings.rag, pineconeGlobalFallbackEnabled },
+              }),
+            )
+          }
+        />
+        <div className="min-w-0 flex-1">
+          <FieldLabel>空结果时全局回退</FieldLabel>
+          <FieldDescription>
+            开启后，同规则库检索无结果会再查全局 namespace；关闭可减少一次 Pinecone 请求。
+          </FieldDescription>
+        </div>
+      </Field>
       {settings.rag.pineconeRerankEnabled && (
         <Field>
           <FieldLabel htmlFor="pinecone-rerank-model">Rerank 模型</FieldLabel>
@@ -3942,6 +4006,7 @@ function findProvider(settings: AiSettings, providerId?: string): AiProviderConf
 function GameConsole({
   detail,
   busy,
+  streamingMessageIds,
   communicableAgents,
   playerAction,
   proxyMode,
@@ -3955,6 +4020,7 @@ function GameConsole({
 }: {
   detail: CampaignDetail;
   busy: boolean;
+  streamingMessageIds: Set<string>;
   communicableAgents: AiAgentConfig[];
   playerAction: string;
   proxyMode: boolean;
@@ -3975,6 +4041,11 @@ function GameConsole({
     communicableAgents.some(
       (agent) => agent.label === privateChatTarget || agent.role === privateChatTarget,
     );
+  const hiddenMessageCount = Math.max(0, detail.messages.length - maxVisiblePlayMessages);
+  const visibleMessages =
+    hiddenMessageCount > 0
+      ? detail.messages.slice(-maxVisiblePlayMessages)
+      : detail.messages;
 
   function rollDice() {
     setDiceResult(rollDiceExpression(diceExpression));
@@ -4007,18 +4078,18 @@ function GameConsole({
             <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
               <ScrollArea className="min-h-[280px] flex-1 rounded-lg border">
                 <div className="flex flex-col gap-3 p-4">
-                  {detail.messages.map((message) => (
-                    <div key={message.id} className="message-card rounded-lg border bg-card p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <MessageAuthorBadge message={message} detail={detail} />
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(message.createdAt).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="whitespace-pre-wrap text-sm leading-6">
-                        <MarkdownMessage content={message.content} />
-                      </div>
+                  {hiddenMessageCount > 0 && (
+                    <div className="rounded-lg border border-dashed bg-muted/40 p-3 text-center text-xs text-muted-foreground">
+                      已折叠较早的 {hiddenMessageCount} 条记录；完整内容可在“记录”页查看。
                     </div>
+                  )}
+                  {visibleMessages.map((message) => (
+                    <MessageCard
+                      key={message.id}
+                      message={message}
+                      detail={detail}
+                      streaming={streamingMessageIds.has(message.id)}
+                    />
                   ))}
                 </div>
               </ScrollArea>
@@ -4212,33 +4283,72 @@ function GameConsole({
   );
 }
 
-function MarkdownMessage({ content }: { content: string }) {
+const MessageCard = memo(
+  function MessageCard({
+    message,
+    detail,
+    streaming,
+  }: {
+    message: GameMessage;
+    detail: CampaignDetail;
+    streaming: boolean;
+  }) {
+    return (
+      <div className="message-card rounded-lg border bg-card p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <MessageAuthorBadge message={message} detail={detail} />
+          <span className="text-xs text-muted-foreground">
+            {new Date(message.createdAt).toLocaleTimeString()}
+          </span>
+        </div>
+        <div className="whitespace-pre-wrap text-sm leading-6">
+          {streaming ? (
+            <span>{message.content}</span>
+          ) : (
+            <MarkdownMessage content={message.content} />
+          )}
+        </div>
+      </div>
+    );
+  },
+  (previous, next) =>
+    previous.message === next.message &&
+    previous.detail.npcs === next.detail.npcs &&
+    previous.streaming === next.streaming,
+);
+
+const markdownComponents = {
+  p: ({ children }: { children?: ReactNode }) => (
+    <span className="mb-2 block last:mb-0">{children}</span>
+  ),
+  ul: ({ children }: { children?: ReactNode }) => (
+    <ul className="my-2 list-disc pl-5">{children}</ul>
+  ),
+  ol: ({ children }: { children?: ReactNode }) => (
+    <ol className="my-2 list-decimal pl-5">{children}</ol>
+  ),
+  blockquote: ({ children }: { children?: ReactNode }) => (
+    <blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  code: ({ children }: { children?: ReactNode }) => (
+    <code className="rounded bg-muted px-1 py-0.5 text-xs">{children}</code>
+  ),
+  pre: ({ children }: { children?: ReactNode }) => (
+    <pre className="my-2 overflow-auto rounded bg-muted p-3 text-xs">
+      {children}
+    </pre>
+  ),
+};
+
+const MarkdownMessage = memo(function MarkdownMessage({ content }: { content: string }) {
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        p: ({ children }) => <span className="mb-2 block last:mb-0">{children}</span>,
-        ul: ({ children }) => <ul className="my-2 list-disc pl-5">{children}</ul>,
-        ol: ({ children }) => <ol className="my-2 list-decimal pl-5">{children}</ol>,
-        blockquote: ({ children }) => (
-          <blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">
-            {children}
-          </blockquote>
-        ),
-        code: ({ children }) => (
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">{children}</code>
-        ),
-        pre: ({ children }) => (
-          <pre className="my-2 overflow-auto rounded bg-muted p-3 text-xs">
-            {children}
-          </pre>
-        ),
-      }}
-    >
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
       {content}
     </ReactMarkdown>
   );
-}
+});
 
 function MessageAuthorBadge({
   message,

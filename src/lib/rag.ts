@@ -26,6 +26,9 @@ export interface PineconeUsageEvent {
   createdAt: string;
 }
 
+const ragContextCache = new Map<string, string>();
+const maxRagContextCacheEntries = 50;
+
 export async function importRulebookDocument(
   repository: GameRepository,
   input: ImportRulebookInput,
@@ -93,17 +96,53 @@ export async function buildRulesRagContext(
     return "";
   }
   if (settings.rag.source === "pinecone") {
+    return buildRulesRagContextUncached(
+      repository,
+      settings,
+      rulesetId,
+      query,
+      options,
+    );
+  }
+  const cacheKey = createRagContextCacheKey(settings, rulesetId, query);
+  const cached = ragContextCache.get(cacheKey);
+  if (cached !== undefined) {
+    ragContextCache.delete(cacheKey);
+    ragContextCache.set(cacheKey, cached);
+    return cached;
+  }
+  const context = await buildRulesRagContextUncached(
+    repository,
+    settings,
+    rulesetId,
+    query,
+    options,
+  );
+  rememberRagContext(cacheKey, context);
+  return context;
+}
+
+async function buildRulesRagContextUncached(
+  repository: GameRepository,
+  settings: AiSettings,
+  rulesetId: string,
+  query: string,
+  options: { onPineconeUsage?: (event: PineconeUsageEvent) => void },
+): Promise<string> {
+  if (settings.rag.source === "pinecone") {
     const scoped = await searchPineconeRulebook(settings.rag, rulesetId, query);
-    const result = scoped.hits.length
+    const shouldFallback =
+      settings.rag.pineconeGlobalFallbackEnabled && !scoped.hits.length;
+    const result = scoped.hits.length || !shouldFallback
       ? scoped
       : await searchPineconeRulebook(settings.rag, undefined, query);
     options.onPineconeUsage?.({
       operation: "search",
-      usage: scoped.hits.length
+      usage: !shouldFallback
         ? scoped.usage
         : mergePineconeUsage(scoped.usage, result.usage),
       hitCount: result.hits.length,
-      fallbackToGlobalSearch: !scoped.hits.length,
+      fallbackToGlobalSearch: shouldFallback,
       createdAt: nowIso(),
     });
     return result.hits
@@ -151,6 +190,41 @@ export async function buildRulesRagContext(
         `[规则片段 ${index + 1} | chunk ${candidate.chunk.chunkIndex + 1} | score ${candidate.score.toFixed(3)}]\n${candidate.chunk.content}`,
     )
     .join("\n\n");
+}
+
+function createRagContextCacheKey(
+  settings: AiSettings,
+  rulesetId: string,
+  query: string,
+): string {
+  const rag = settings.rag;
+  return JSON.stringify({
+    rulesetId,
+    query: query.trim(),
+    source: rag.source,
+    topK: rag.topK,
+    embeddingProviderId: rag.embeddingProviderId,
+    embeddingModel: rag.embeddingModel,
+    rerankProviderId: rag.rerankProviderId,
+    rerankModel: rag.rerankModel,
+    pineconeIndexName: rag.pineconeIndexName,
+    pineconeNamespace: rag.pineconeNamespace,
+    pineconeEmbeddingModel: rag.pineconeEmbeddingModel,
+    pineconeRerankEnabled: rag.pineconeRerankEnabled,
+    pineconeRerankModel: rag.pineconeRerankModel,
+    pineconeGlobalFallbackEnabled: rag.pineconeGlobalFallbackEnabled,
+  });
+}
+
+function rememberRagContext(cacheKey: string, context: string): void {
+  ragContextCache.set(cacheKey, context);
+  if (ragContextCache.size <= maxRagContextCacheEntries) {
+    return;
+  }
+  const oldest = ragContextCache.keys().next().value;
+  if (oldest) {
+    ragContextCache.delete(oldest);
+  }
 }
 
 function mergePineconeUsage(

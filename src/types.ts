@@ -169,6 +169,7 @@ export interface AiRagSettings {
   pineconeEmbeddingModel: string;
   pineconeRerankEnabled: boolean;
   pineconeRerankModel: string;
+  pineconeGlobalFallbackEnabled: boolean;
   topK: number;
   chunkSize: number;
 }
@@ -179,6 +180,7 @@ export interface AiSettings {
   agents: AiAgentConfig[];
   rag: AiRagSettings;
   gmFullContext?: boolean;
+  responseMode?: "complete" | "fast";
 }
 
 export interface CampaignDetail {

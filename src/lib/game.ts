@@ -234,6 +234,7 @@ export async function playTurnStreaming(
   const aiMessages: GameMessage[] = [];
   const turnEvents: GameEvent[] = [];
   const toolResults: AiToolExecutionResult[] = [];
+  const fastResponseMode = settings.responseMode === "fast";
   const rulesContext = await buildRulesRagContext(
     repository,
     settings,
@@ -241,12 +242,9 @@ export async function playTurnStreaming(
     action,
     { onPineconeUsage: handlers.onPineconeUsage },
   );
-  const hiddenRulesOutput = await runHiddenRulesJudgeTurn(
-    baseDetail,
-    action,
-    settings,
-    rulesContext,
-  );
+  const hiddenRulesOutput = fastResponseMode
+    ? undefined
+    : await runHiddenRulesJudgeTurn(baseDetail, action, settings, rulesContext);
   if (hiddenRulesOutput?.content.trim()) {
     turnEvents.push({
       id: createId("evt"),
@@ -355,7 +353,7 @@ export async function playTurnStreaming(
   }
 
   // 记录员在每轮最后执行，可以看到本回合所有输出
-  {
+  if (!fastResponseMode) {
     const archivistDetail: CampaignDetail = {
       ...baseDetail,
       messages: [...baseDetail.messages, ...aiMessages],

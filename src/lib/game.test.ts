@@ -138,6 +138,35 @@ describe("game orchestration", () => {
     expect(updated.messages.some((message) => message.author === "RulesJudge")).toBe(true);
     expect(updated.events.some((event) => event.eventType === "rules_judge_private")).toBe(false);
   });
+
+  it("uses fast response mode to show GM output without hidden judge or archivist calls", async () => {
+    const { repository, detail } = await setupRepositoryWithNpc();
+    const cleanDetail = { ...detail, npcs: [] };
+    const requests: unknown[] = [];
+    const appended: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      requests.push(JSON.parse(String(init.body)));
+      return jsonResponse({
+        choices: [{ message: { content: "你立刻看见门缝里的冷光。" } }],
+      });
+    });
+
+    const updated = await playTurnStreaming(
+      repository,
+      cleanDetail,
+      "我检查门缝。",
+      fastCoreSettings(),
+      {
+        onMessageAppend: (message) => appended.push(message.author),
+      },
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(appended).toContain("GM");
+    expect(updated.messages.some((message) => message.author === "GM")).toBe(true);
+    expect(updated.messages.some((message) => message.author === "Archivist")).toBe(false);
+    expect(updated.events.some((event) => event.eventType === "rules_judge_private")).toBe(false);
+  });
 });
 
 async function setupRepositoryWithNpc(): Promise<{
@@ -190,6 +219,24 @@ function gmAndRulesSettings(): AiSettings {
     agents: settings.agents.map((agent) => ({
       ...agent,
       enabled: agent.role === "GM" || agent.role === "RulesJudge",
+    })),
+  };
+}
+
+function fastCoreSettings(): AiSettings {
+  const settings = normalizeAiSettings({
+    ...defaultAiSettings,
+    responseMode: "fast",
+    providers: [{ ...defaultAiSettings.providers[0], apiKey: "test-key" }],
+  });
+  return {
+    ...settings,
+    agents: settings.agents.map((agent) => ({
+      ...agent,
+      enabled:
+        agent.role === "GM" ||
+        agent.role === "RulesJudge" ||
+        agent.role === "Archivist",
     })),
   };
 }

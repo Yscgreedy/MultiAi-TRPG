@@ -63,9 +63,16 @@ describe("rulebook RAG", () => {
       "light-rules-v1",
       "我尝试撬锁。",
     );
+    const cachedContext = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我尝试撬锁。",
+    );
 
     expect(document.chunkCount).toBeGreaterThan(1);
     expect(context).toContain("撬锁时使用");
+    expect(cachedContext).toBe(context);
     expect(context).not.toContain("追逐时使用");
     expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests)).not.toContain("rerank");
