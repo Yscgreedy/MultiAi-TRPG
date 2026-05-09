@@ -7,7 +7,8 @@
 - 单人玩家 + 多 AI 角色：主持人、队友 NPC、规则裁判、世界记录员。
 - OpenAI-compatible API 配置：`baseUrl`、`apiKey`、默认模型、角色模型覆盖。
 - 角色卡生成、JSON 导入、JSON 导出、版本留痕。
-- 规则书导入与 RAG：按规则书分类切片，使用 provider 配置的 embedding 模型生成向量；rerank 模型为空时跳过 rerank。
+- 规则书导入与 RAG：按规则书库名称批量导入 PDF/TXT/Markdown 文件或文件夹，切片后写入本地向量库；rerank 模型为空时跳过 rerank。
+- Pinecone Easy RAG：可在 AI 设置中切换到 Pinecone 托管 embedding、向量检索和可选 rerank；配置教程见 `docs/pinecone-rag.md`。
 - 战役断点续玩：每轮行动、AI 回复、事件和摘要都持久化。
 - Tauri 运行时使用 `@tauri-apps/plugin-sql` 连接 `sqlite:multi-ai-trpg.db`。
 

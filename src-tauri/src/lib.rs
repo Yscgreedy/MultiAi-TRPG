@@ -286,6 +286,12 @@ fn migrations() -> Vec<Migration> {
             sql: "CREATE INDEX IF NOT EXISTS idx_rulebook_chunks_ruleset ON rulebook_chunks(ruleset_id, document_id, chunk_index);",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 24,
+            description: "add_rulebook_character_type",
+            sql: "ALTER TABLE rulebook_documents ADD COLUMN character_type TEXT NOT NULL DEFAULT '通用';",
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

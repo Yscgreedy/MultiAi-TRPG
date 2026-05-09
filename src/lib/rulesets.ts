@@ -36,21 +36,98 @@ export interface ActionPromptInput {
   recentMessages: string[];
 }
 
-const attributeSchema = z.object({
-  body: z.number().int().min(1).max(5),
-  mind: z.number().int().min(1).max(5),
-  spirit: z.number().int().min(1).max(5),
-  charm: z.number().int().min(1).max(5),
-});
+export interface CharacterSheetTemplate {
+  id: string;
+  name: string;
+  description: string;
+  defaultAttributes: AttributeBlock;
+  defaultSkills: Record<string, number>;
+  attributeMin: number;
+  attributeMax: number;
+  skillMin: number;
+  skillMax: number;
+}
+
+export const characterSheetTemplates: CharacterSheetTemplate[] = [
+  {
+    id: "通用",
+    name: "通用",
+    description: "四属性轻量角色卡，适合未知或自定义规则书。",
+    defaultAttributes: { body: 2, mind: 2, spirit: 2, charm: 2 },
+    defaultSkills: { 观察: 1, 交涉: 1, 潜行: 1, 战斗: 1, 学识: 1 },
+    attributeMin: 1,
+    attributeMax: 5,
+    skillMin: 0,
+    skillMax: 5,
+  },
+  {
+    id: "DnD",
+    name: "DnD",
+    description: "D&D 风格六属性角色卡。",
+    defaultAttributes: { 力量: 10, 敏捷: 10, 体质: 10, 智力: 10, 感知: 10, 魅力: 10 },
+    defaultSkills: { 察觉: 0, 调查: 0, 隐匿: 0, 说服: 0, 奥秘: 0, 运动: 0 },
+    attributeMin: 1,
+    attributeMax: 20,
+    skillMin: 0,
+    skillMax: 10,
+  },
+  {
+    id: "CoC",
+    name: "CoC",
+    description: "克苏鲁调查风格百分制角色卡。",
+    defaultAttributes: { 力量: 50, 体质: 50, 体型: 50, 敏捷: 50, 外貌: 50, 智力: 50, 意志: 50, 教育: 50 },
+    defaultSkills: { 侦查: 25, 聆听: 20, 图书馆使用: 20, 心理学: 10, 神秘学: 5, 潜行: 20 },
+    attributeMin: 1,
+    attributeMax: 100,
+    skillMin: 0,
+    skillMax: 100,
+  },
+  {
+    id: "PF2e",
+    name: "PF2e",
+    description: "Pathfinder 风格六属性角色卡。",
+    defaultAttributes: { 力量: 10, 敏捷: 10, 体质: 10, 智力: 10, 感知: 10, 魅力: 10 },
+    defaultSkills: { 运动: 0, 特技: 0, 奥法: 0, 自然: 0, 医药: 0, 社群: 0 },
+    attributeMin: 1,
+    attributeMax: 20,
+    skillMin: 0,
+    skillMax: 10,
+  },
+  {
+    id: "Fate",
+    name: "Fate",
+    description: "Fate 风格技能阶梯角色卡。",
+    defaultAttributes: { 体魄: 1, 机敏: 1, 意志: 1, 社交: 1 },
+    defaultSkills: { 调查: 1, 战斗: 1, 交流: 1, 资源: 1, 工艺: 1, 潜行: 1 },
+    attributeMin: 0,
+    attributeMax: 5,
+    skillMin: 0,
+    skillMax: 5,
+  },
+];
+
+export function getCharacterSheetTemplate(characterType?: string): CharacterSheetTemplate {
+  const normalized = characterType?.trim().toLowerCase();
+  return (
+    characterSheetTemplates.find(
+      (template) =>
+        template.id.toLowerCase() === normalized ||
+        template.name.toLowerCase() === normalized,
+    ) ?? characterSheetTemplates[0]
+  );
+}
+
+const attributeSchema = z.record(z.string(), z.number().int());
 
 export const characterCardSchema: z.ZodType<CharacterCard> = z.object({
   id: z.string().min(1),
   rulesetId: z.string().min(1),
+  characterType: z.string().optional(),
   name: z.string().min(1),
   concept: z.string().min(1),
   background: z.string().default(""),
   attributes: attributeSchema,
-  skills: z.record(z.string(), z.number().int().min(0).max(5)),
+  skills: z.record(z.string(), z.number().int().min(0)),
   inventory: z.array(z.string()),
   bonds: z.array(z.string()),
   conditions: z.array(z.string()),
@@ -126,29 +203,34 @@ export function getRuleset(rulesetId: string): RulesetAdapter {
 
 export function createEmptyCharacter(
   rulesetId = lightRulesV1.id,
-  concept = "失忆的旅行者",
+  concept = "待确定",
+  characterType = "通用",
 ): CharacterCard {
-  const ruleset = getRuleset(rulesetId);
+  const template = getCharacterSheetTemplate(characterType);
   const timestamp = nowIso();
 
   return {
     id: createId("char"),
     rulesetId,
+    characterType: template.id,
     name: "未命名角色",
     concept,
-    background: "在故事开始前留下了几个尚未解释的空白。",
-    attributes: { ...ruleset.defaultAttributes },
-    skills: { ...ruleset.defaultSkills },
-    inventory: ["旧地图", "便携灯"],
-    bonds: ["欠某位 NPC 一个解释"],
+    background: "",
+    attributes: { ...template.defaultAttributes },
+    skills: { ...template.defaultSkills },
+    inventory: [],
+    bonds: [],
     conditions: [],
-    notes: "",
+    notes: `角色卡类型：${template.name}`,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 }
 
-export function createRandomCharacter(rulesetId = lightRulesV1.id): CharacterCard {
+export function createRandomCharacter(
+  rulesetId = lightRulesV1.id,
+  characterType = "通用",
+): CharacterCard {
   const concepts = [
     "负债的旧书店店主",
     "追踪传说的邮差",
@@ -158,7 +240,7 @@ export function createRandomCharacter(rulesetId = lightRulesV1.id): CharacterCar
   ];
   const names = ["林岚", "沈烛", "周砚", "陆青", "许望"];
   const concept = concepts[Math.floor(Math.random() * concepts.length)];
-  const character = createEmptyCharacter(rulesetId, concept);
+  const character = createEmptyCharacter(rulesetId, concept, characterType);
 
   return {
     ...character,
@@ -190,17 +272,20 @@ export function cloneCharacterForCampaign(character: CharacterCard): CharacterCa
 export function normalizeGeneratedCharacter(
   raw: unknown,
   rulesetId = lightRulesV1.id,
+  characterType = "通用",
 ): CharacterCard {
-  const base = createEmptyCharacter(rulesetId);
   const data = typeof raw === "object" && raw ? (raw as Partial<CharacterCard>) : {};
+  const template = getCharacterSheetTemplate(data.characterType || characterType);
+  const base = createEmptyCharacter(rulesetId, undefined, template.id);
 
   return characterCardSchema.parse({
     ...base,
     ...data,
     id: data.id || base.id,
     rulesetId,
-    attributes: normalizeAttributes(data.attributes, base.attributes),
-    skills: normalizeSkillMap(data.skills, base.skills),
+    characterType: template.id,
+    attributes: normalizeAttributes(data.attributes, base.attributes, template),
+    skills: normalizeSkillMap(data.skills, base.skills, template),
     inventory: normalizeStringList(data.inventory, base.inventory),
     bonds: normalizeStringList(data.bonds, base.bonds),
     conditions: normalizeStringList(data.conditions, base.conditions),
@@ -209,19 +294,30 @@ export function normalizeGeneratedCharacter(
   });
 }
 
-function normalizeAttributes(value: unknown, fallback: AttributeBlock): AttributeBlock {
+function normalizeAttributes(
+  value: unknown,
+  fallback: AttributeBlock,
+  template: CharacterSheetTemplate,
+): AttributeBlock {
   const record = typeof value === "object" && value ? value as Record<string, unknown> : {};
-  return {
-    body: normalizeNumber(record.body, fallback.body, 1, 5),
-    mind: normalizeNumber(record.mind, fallback.mind, 1, 5),
-    spirit: normalizeNumber(record.spirit, fallback.spirit, 1, 5),
-    charm: normalizeNumber(record.charm, fallback.charm, 1, 5),
-  };
+  const keys = new Set([...Object.keys(fallback), ...Object.keys(record)]);
+  return Object.fromEntries(
+    [...keys].map((key) => [
+      key,
+      normalizeNumber(
+        record[key],
+        fallback[key] ?? template.attributeMin,
+        template.attributeMin,
+        template.attributeMax,
+      ),
+    ]),
+  );
 }
 
 function normalizeSkillMap(
   value: unknown,
   fallback: Record<string, number>,
+  template = getCharacterSheetTemplate(),
 ): Record<string, number> {
   if (Array.isArray(value)) {
     const entries = value
@@ -233,7 +329,10 @@ function normalizeSkillMap(
           const record = item as Record<string, unknown>;
           const name = record.name ?? record.label ?? record.skill;
           if (typeof name === "string" && name.trim()) {
-            return [name.trim(), normalizeNumber(record.value ?? record.level, 1, 0, 5)] as const;
+            return [
+              name.trim(),
+              normalizeNumber(record.value ?? record.level, 1, template.skillMin, template.skillMax),
+            ] as const;
           }
         }
         return undefined;
@@ -246,7 +345,10 @@ function normalizeSkillMap(
   }
   const normalized = Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => [key, normalizeNumber(item, 1, 0, 5)] as const)
+      .map(([key, item]) => [
+        key,
+        normalizeNumber(item, 1, template.skillMin, template.skillMax),
+      ] as const)
       .filter(([key]) => key.trim()),
   );
   return Object.keys(normalized).length ? { ...fallback, ...normalized } : fallback;

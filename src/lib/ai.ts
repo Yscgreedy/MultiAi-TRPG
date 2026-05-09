@@ -6,11 +6,15 @@ import type {
   AiSettings,
   CampaignDetail,
   CharacterCard,
+  CharacterCreationMessage,
+  CharacterCreationSession,
+  CharacterCreationToolResult,
   GameMessage,
   NpcCharacter,
 } from "@/types";
 import {
   createEmptyCharacter,
+  getCharacterSheetTemplate,
   getRuleset,
   normalizeGeneratedCharacter,
   type CharacterSeedInput,
@@ -75,10 +79,19 @@ export const defaultAiSettings: AiSettings = {
   agents: defaultAgents,
   rag: {
     enabled: true,
+    source: "local",
     embeddingProviderId: "openai",
     embeddingModel: "text-embedding-3-small",
     rerankProviderId: "openai",
     rerankModel: "",
+    pineconeApiKey: "",
+    pineconeIndexName: "multi-ai-trpg-rag",
+    pineconeNamespace: "multi-ai-trpg",
+    pineconeCloud: "aws",
+    pineconeRegion: "us-east-1",
+    pineconeEmbeddingModel: "llama-text-embed-v2",
+    pineconeRerankEnabled: false,
+    pineconeRerankModel: "bge-reranker-v2-m3",
     topK: 4,
     chunkSize: 900,
   },
@@ -147,6 +160,11 @@ export interface AiToolRuntime {
 export interface AiToolExecutionResult {
   toolName: string;
   result: unknown;
+}
+
+interface CharacterCreationRunContext {
+  draft: CharacterCard;
+  toolResults: CharacterCreationToolResult[];
 }
 
 interface LegacyAiSettings {
@@ -399,13 +417,34 @@ function normalizeRagSettings(
 
   return {
     enabled: raw?.enabled ?? true,
+    source: raw?.source === "pinecone" ? "pinecone" : "local",
     embeddingProviderId,
     embeddingModel: raw?.embeddingModel || "text-embedding-3-small",
     rerankProviderId,
     rerankModel: raw?.rerankModel ?? "",
+    pineconeApiKey: raw?.pineconeApiKey ?? "",
+    pineconeIndexName: normalizePineconeIndexName(raw?.pineconeIndexName),
+    pineconeNamespace: raw?.pineconeNamespace?.trim() || "multi-ai-trpg",
+    pineconeCloud: raw?.pineconeCloud?.trim() || "aws",
+    pineconeRegion: raw?.pineconeRegion?.trim() || "us-east-1",
+    pineconeEmbeddingModel:
+      raw?.pineconeEmbeddingModel?.trim() || "llama-text-embed-v2",
+    pineconeRerankEnabled: raw?.pineconeRerankEnabled ?? false,
+    pineconeRerankModel:
+      raw?.pineconeRerankModel?.trim() || "bge-reranker-v2-m3",
     topK: clampInteger(raw?.topK, 1, 12, 4),
     chunkSize: clampInteger(raw?.chunkSize, 300, 2400, 900),
   };
+}
+
+function normalizePineconeIndexName(value: string | undefined): string {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || "multi-ai-trpg-rag";
 }
 
 function findProvider(
@@ -623,6 +662,248 @@ export async function runAiAgentTurn(
   };
 }
 
+export function createCharacterCreationSession(
+  rulesetId: string,
+  characterType = "通用",
+  seed: CharacterSeedInput = { concept: "", tone: "", profession: "" },
+  rulesContext = "",
+): CharacterCreationSession {
+  const timestamp = nowIso();
+  const draft = createBlankCharacterCreationDraft(rulesetId, characterType, seed);
+  return {
+    id: createId("chargen"),
+    rulesetId,
+    characterType: draft.characterType ?? characterType,
+    draft,
+    messages: [
+      {
+        id: createId("chargenmsg"),
+        author: "GM",
+        content:
+          "我们先聊角色。你可以描述想扮演什么样的人、来自哪里、擅长什么、害怕什么；数值和点数我会按规则自动处理。",
+        createdAt: timestamp,
+      },
+    ],
+    toolResults: [],
+    status: "chatting",
+    rulesContext,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function createBlankCharacterCreationDraft(
+  rulesetId: string,
+  characterType: string,
+  seed: Partial<CharacterSeedInput> = {},
+): CharacterCard {
+  const draft = createEmptyCharacter(rulesetId, "待确定", characterType);
+  return {
+    ...draft,
+    name: "待定角色",
+    concept: "待确定",
+    background: "",
+    inventory: [],
+    bonds: [],
+    conditions: [],
+    notes: [
+      `角色卡类型：${draft.characterType ?? characterType}`,
+      seed.concept?.trim() ? `玩家初始概念：${seed.concept.trim()}` : "",
+      seed.tone?.trim() ? `期望调性：${seed.tone.trim()}` : "",
+      seed.profession?.trim() ? `职业倾向：${seed.profession.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+export async function runCharacterCreationGmTurn(
+  settings: AiSettings,
+  session: CharacterCreationSession,
+  playerReply: string,
+  rulesContext = session.rulesContext ?? "",
+  onToken?: (token: string) => void,
+): Promise<CharacterCreationSession> {
+  const reply = playerReply.trim();
+  if (!reply) {
+    throw new Error("请输入要告诉制卡 GM 的内容。");
+  }
+
+  const timestamp = nowIso();
+  const playerMessage: CharacterCreationMessage = {
+    id: createId("chargenmsg"),
+    author: "player",
+    content: reply,
+    createdAt: timestamp,
+  };
+  const baseSession: CharacterCreationSession = {
+    ...session,
+    rulesContext,
+    messages: [...session.messages, playerMessage],
+    status: "chatting",
+    updatedAt: timestamp,
+  };
+  const provider = findProvider(settings, settings.defaultProviderId);
+
+  if (!provider.apiKey.trim()) {
+    return {
+      ...baseSession,
+      draft: normalizeGeneratedCharacter(
+        {
+          ...baseSession.draft,
+          concept:
+            baseSession.draft.concept === "待确定"
+              ? reply.slice(0, 40)
+              : baseSession.draft.concept,
+          background: [baseSession.draft.background, `玩家补充：${reply}`]
+            .filter(Boolean)
+            .join("\n"),
+        },
+        baseSession.rulesetId,
+        baseSession.characterType,
+      ),
+      messages: [
+        ...baseSession.messages,
+        {
+          id: createId("chargenmsg"),
+          author: "GM",
+          content: emitCharacterCreationTokens(
+            `[${provider.name} 未配置 API Key] 我已记录这条设定。继续补充角色的动机、弱点或关系；最终生成时我会用当前模板自动完成数值。`,
+            onToken,
+          ),
+          createdAt: nowIso(),
+        },
+      ],
+      updatedAt: nowIso(),
+    };
+  }
+
+  const context: CharacterCreationRunContext = {
+    draft: baseSession.draft,
+    toolResults: [...baseSession.toolResults],
+  };
+  const model = resolveModel(provider);
+  const endpoint = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const tools = buildCharacterCreationTools();
+  const messages = buildCharacterCreationMessages(baseSession);
+  let response = await postChatCompletion(endpoint, provider.apiKey, {
+    model,
+    messages,
+    temperature: 0.75,
+    stream: false,
+    tools,
+    tool_choice: "auto",
+  });
+  if (!response.ok) {
+    throw new Error(`制卡 GM 调用失败：${response.status} ${await response.text()}`);
+  }
+
+  let data = await readChatCompletionResponse(response);
+  for (let index = 0; index < 4 && data.toolCalls.length; index += 1) {
+    messages.push({
+      role: "assistant",
+      content: data.content,
+      ...(data.reasoningContent
+        ? { reasoning_content: data.reasoningContent }
+        : {}),
+      tool_calls: data.toolCalls,
+    });
+    for (const toolCall of data.toolCalls) {
+      const result = await executeCharacterCreationTool(
+        toolCall,
+        baseSession,
+        context,
+      );
+      messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: JSON.stringify(result),
+      });
+    }
+    response = await postChatCompletion(endpoint, provider.apiKey, {
+      model,
+      messages,
+      temperature: 0.75,
+      stream: false,
+      tools,
+      tool_choice: "auto",
+    });
+    if (!response.ok) {
+      throw new Error(
+        `制卡 GM 工具调用后生成回复失败：${response.status} ${await response.text()}`,
+      );
+    }
+    data = await readChatCompletionResponse(response);
+  }
+  if (data.toolCalls.length) {
+    throw new Error("制卡 GM 工具调用超过最大轮数。");
+  }
+  const streamedContent = onToken
+    ? await streamCharacterCreationReply(endpoint, provider.apiKey, model, messages, onToken)
+    : "";
+  const content = streamedContent || data.content.trim();
+
+  return {
+    ...baseSession,
+    draft: context.draft,
+    toolResults: context.toolResults,
+    messages: [
+      ...baseSession.messages,
+      {
+        id: createId("chargenmsg"),
+        author: "GM",
+        content,
+        createdAt: nowIso(),
+      },
+    ],
+    status: "ready",
+    updatedAt: nowIso(),
+  };
+}
+
+export async function finalizeCharacterCreation(
+  settings: AiSettings,
+  session: CharacterCreationSession,
+): Promise<CharacterCard> {
+  const provider = findProvider(settings, settings.defaultProviderId);
+  if (!provider.apiKey.trim()) {
+    return normalizeGeneratedCharacter(
+      {
+        ...session.draft,
+        notes: `${session.draft.notes}\n离线制卡：已根据当前草稿和模板自动补齐数值。`,
+      },
+      session.rulesetId,
+      session.characterType,
+    );
+  }
+
+  const model = resolveModel(provider);
+  const endpoint = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const response = await postJsonModeChatCompletion(
+    endpoint,
+    provider.apiKey,
+    {
+      model,
+      messages: buildCharacterFinalizationMessages(session),
+      temperature: 0.45,
+      response_format: { type: "json_object" as const },
+    },
+    "制卡最终生成失败",
+  );
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("制卡最终生成没有返回内容。");
+  }
+  return normalizeGeneratedCharacter(
+    extractGeneratedCharacter(parseJsonObject(content)),
+    session.rulesetId,
+    session.characterType,
+  );
+}
+
 export async function runAiAgentTurnStreaming(
   agent: AiAgentConfig,
   input: AiTurnInput,
@@ -836,6 +1117,188 @@ function buildToolsForTurn(
   ];
 }
 
+function buildCharacterCreationMessages(
+  session: CharacterCreationSession,
+): ChatMessage[] {
+  const template = getCharacterSheetTemplate(session.characterType);
+  const ruleset = getRuleset(session.rulesetId);
+  const conversation = session.messages
+    .map((message) => `${message.author}: ${message.content}`)
+    .join("\n");
+  return [
+    {
+      role: "system",
+      content: [
+        "你是玩家角色卡的制卡 GM，不是正式战役 GM。",
+        "你的目标是通过简短中文交流，帮助玩家做出更可玩的一张玩家角色卡。",
+        "玩家不需要手动分配点数；属性、技能、点数经济和随机分点由你按规则处理。",
+        "如果当前规则书或角色创建规则要求随机分点、随机背景表或骰点来源，你必须调用 roll_dice 工具取得随机结果。",
+        "你只能通过制卡工具读取、更新或重置当前制卡草稿；不要创建或修改 NPC，不要写入正式战役记录。",
+        "每轮回复要自然、简洁，并在需要时提 1-2 个能推进制卡的具体问题。",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `规则书：${ruleset.name}（${session.rulesetId}）`,
+        `规则说明：${ruleset.description}`,
+        `判定规则：${ruleset.diceExpression}`,
+        `角色卡模板 JSON：${JSON.stringify(template)}`,
+        session.rulesContext ? `规则书 RAG 片段：\n${session.rulesContext}` : "",
+        `当前制卡草稿：${formatCharacterForPrompt(session.draft)}`,
+        session.toolResults.length
+          ? `已发生工具结果：${JSON.stringify(session.toolResults)}`
+          : "",
+        `制卡对话：\n${conversation}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    },
+  ];
+}
+
+function buildCharacterFinalizationMessages(
+  session: CharacterCreationSession,
+): ChatMessage[] {
+  const template = getCharacterSheetTemplate(session.characterType);
+  const conversation = session.messages
+    .map((message) => `${message.author}: ${message.content}`)
+    .join("\n");
+  return [
+    {
+      role: "system",
+      content:
+        "你只输出可解析 JSON，不要 Markdown，不要解释。输出一张最终玩家角色卡。",
+    },
+    {
+      role: "user",
+      content: [
+        "根据制卡对话、当前草稿、规则书片段、角色卡模板和工具结果，生成最终玩家角色卡 JSON。",
+        "字段必须包含：name, concept, background, attributes, skills, inventory, bonds, conditions, notes。",
+        "不要要求玩家手动分点；如果已有骰点或随机结果，把它们体现在 notes 或数值分配依据中。",
+        `规则书：${session.rulesetId}`,
+        `角色卡类型：${session.characterType}`,
+        `角色卡模板 JSON：${JSON.stringify(template)}`,
+        session.rulesContext ? `规则书 RAG 片段：\n${session.rulesContext}` : "",
+        `当前草稿：${formatCharacterForPrompt(session.draft)}`,
+        session.toolResults.length
+          ? `工具结果：${JSON.stringify(session.toolResults)}`
+          : "",
+        `对话：\n${conversation}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    },
+  ];
+}
+
+function buildCharacterCreationTools(): ChatCompletionTool[] {
+  return [
+    rollDiceTool(),
+    getCreationCharacterCardTool(),
+    updateCreationCharacterCardTool(),
+    resetCreationCharacterCardTool(),
+  ];
+}
+
+function getCreationCharacterCardTool(): ChatCompletionTool {
+  return {
+    type: "function",
+    function: {
+      name: "get_creation_character_card",
+      description: "Read the current player character creation draft.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+async function streamCharacterCreationReply(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+  onToken: (token: string) => void,
+): Promise<string> {
+  const response = await postChatCompletion(endpoint, apiKey, {
+    model,
+    messages: [
+      ...messages,
+      {
+        role: "user",
+        content:
+          "请基于以上制卡上下文、当前草稿和工具结果，输出本轮给玩家看的制卡 GM 回复。可以使用 Markdown。",
+      },
+    ],
+    temperature: 0.75,
+    stream: true,
+  });
+  if (!response.ok) {
+    throw new Error(`制卡 GM 流式回复失败：${response.status} ${await response.text()}`);
+  }
+  if (!response.body) {
+    throw new Error("制卡 GM 流式回复没有返回响应体。");
+  }
+  let content = "";
+  for await (const token of readChatCompletionStream(response.body)) {
+    content += token;
+    onToken(token);
+  }
+  return content.trim();
+}
+
+function emitCharacterCreationTokens(
+  content: string,
+  onToken?: (token: string) => void,
+): string {
+  if (onToken) {
+    for (const token of content.match(/.{1,8}/gs) ?? [content]) {
+      onToken(token);
+    }
+  }
+  return content;
+}
+
+function updateCreationCharacterCardTool(): ChatCompletionTool {
+  return {
+    type: "function",
+    function: {
+      name: "update_creation_character_card",
+      description:
+        "Patch the current player character creation draft. The result is normalized immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          patch: { type: "object" },
+        },
+        required: ["patch"],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+function resetCreationCharacterCardTool(): ChatCompletionTool {
+  return {
+    type: "function",
+    function: {
+      name: "reset_creation_character_card",
+      description:
+        "Reset the current player character creation draft to the selected character sheet template defaults.",
+      parameters: {
+        type: "object",
+        properties: {
+          concept: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
 function rollDiceTool(): ChatCompletionTool {
   return {
     type: "function",
@@ -966,15 +1429,7 @@ async function executeAiTool(
     assertGmTool(runtime, toolCall.function.name);
     const sides = clampInteger(args.sides, 2, 100, 20);
     const count = clampInteger(args.count, 1, 20, 1);
-    const rolls = Array.from(
-      { length: count },
-      () => Math.floor(Math.random() * sides) + 1,
-    );
-    result = {
-      expression: `${count}d${sides}`,
-      rolls,
-      total: rolls.reduce((sum, value) => sum + value, 0),
-    };
+    result = rollDice(count, sides);
   } else if (toolCall.function.name === "get_character_card") {
     result = resolveCharacterTarget(
       String(args.target ?? "self"),
@@ -1005,6 +1460,51 @@ async function executeAiTool(
   return result;
 }
 
+async function executeCharacterCreationTool(
+  toolCall: ChatCompletionToolCall,
+  session: CharacterCreationSession,
+  context: CharacterCreationRunContext,
+): Promise<unknown> {
+  const args = parseToolArguments(toolCall.function.arguments);
+  let result: unknown;
+  if (toolCall.function.name === "roll_dice") {
+    const sides = clampInteger(args.sides, 2, 100, 20);
+    const count = clampInteger(args.count, 1, 20, 1);
+    result = rollDice(count, sides);
+  } else if (toolCall.function.name === "get_creation_character_card") {
+    result = context.draft;
+  } else if (toolCall.function.name === "update_creation_character_card") {
+    const patch =
+      typeof args.patch === "object" && args.patch ? args.patch : {};
+    context.draft = normalizeGeneratedCharacter(
+      { ...context.draft, ...(patch as Partial<CharacterCard>) },
+      session.rulesetId,
+      session.characterType,
+    );
+    result = context.draft;
+  } else if (toolCall.function.name === "reset_creation_character_card") {
+    context.draft = createBlankCharacterCreationDraft(
+      session.rulesetId,
+      session.characterType,
+      {
+        concept:
+          typeof args.concept === "string" && args.concept.trim()
+            ? args.concept.trim()
+            : "",
+      },
+    );
+    result = context.draft;
+  } else {
+    throw new Error(`未知制卡工具：${toolCall.function.name}`);
+  }
+  context.toolResults.push({
+    toolName: toolCall.function.name,
+    result,
+    createdAt: nowIso(),
+  });
+  return result;
+}
+
 function parseToolArguments(raw: string): Record<string, unknown> {
   try {
     return JSON.parse(raw || "{}") as Record<string, unknown>;
@@ -1030,6 +1530,22 @@ function clampInteger(
     return fallback;
   }
   return Math.min(max, Math.max(min, number));
+}
+
+function rollDice(count: number, sides: number): {
+  expression: string;
+  rolls: number[];
+  total: number;
+} {
+  const rolls = Array.from(
+    { length: count },
+    () => Math.floor(Math.random() * sides) + 1,
+  );
+  return {
+    expression: `${count}d${sides}`,
+    rolls,
+    total: rolls.reduce((sum, value) => sum + value, 0),
+  };
 }
 
 function resolveCharacterTarget(
@@ -1067,6 +1583,7 @@ async function updateCharacterTarget(
   const normalized = normalizeGeneratedCharacter(
     { ...current, ...patch },
     current.rulesetId,
+    current.characterType,
   );
   if ("kind" in current && current.kind === "npc") {
     const updated: NpcCharacter = {
@@ -1100,6 +1617,7 @@ async function createNpcFromTool(
   const base = createEmptyCharacter(
     input.detail.campaign.rulesetId,
     seed.concept || "战役中的新 NPC",
+    input.detail.character?.characterType,
   );
   const card = normalizeGeneratedCharacter(
     {
@@ -1111,6 +1629,7 @@ async function createNpcFromTool(
       background: seed.background || base.background,
     },
     input.detail.campaign.rulesetId,
+    input.detail.character?.characterType,
   );
   const npc: NpcCharacter = {
     ...card,
@@ -1159,6 +1678,7 @@ export async function generateCharacterWithAi(
   settings: AiSettings,
   rulesetId: string,
   seed: CharacterSeedInput,
+  characterType = "通用",
 ): Promise<CharacterCard> {
   const provider = findProvider(settings, settings.defaultProviderId);
   const model = resolveModel(provider);
@@ -1172,6 +1692,7 @@ export async function generateCharacterWithAi(
         notes: `调性：${seed.tone || "未指定"}。配置 API Key 后可生成更细致的角色。`,
       },
       rulesetId,
+      characterType,
     );
   }
 
@@ -1210,6 +1731,7 @@ export async function generateCharacterWithAi(
   return normalizeGeneratedCharacter(
     extractGeneratedCharacter(parseJsonObject(content)),
     rulesetId,
+    characterType,
   );
 }
 
@@ -1479,6 +2001,57 @@ export async function fetchProviderModels(
   }
 
   return models;
+}
+
+export interface ProviderConnectionTestResult {
+  providerName: string;
+  model: string;
+  latencyMs: number;
+  content: string;
+}
+
+export async function testProviderConnection(
+  provider: AiProviderConfig,
+): Promise<ProviderConnectionTestResult> {
+  if (!provider.apiKey.trim()) {
+    throw new Error(`Provider「${provider.name}」缺少 API Key。`);
+  }
+
+  const model = resolveModel(provider);
+  const endpoint = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const startedAt = Date.now();
+  const response = await postChatCompletion(endpoint, provider.apiKey, {
+    model,
+    messages: [
+      {
+        role: "system",
+        content: "你是 Provider 连通性测试。只回复 OK。",
+      },
+      {
+        role: "user",
+        content: "请只回复 OK，用于确认当前 API Key、Base URL 和模型可用。",
+      },
+    ],
+    temperature: 0,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `测试 ${provider.name} 失败：${response.status} ${await response.text()}`,
+    );
+  }
+
+  const result = await readChatCompletionResponse(response);
+  if (!result.content) {
+    throw new Error(`Provider「${provider.name}」响应为空。`);
+  }
+
+  return {
+    providerName: provider.name,
+    model,
+    latencyMs: Date.now() - startedAt,
+    content: result.content,
+  };
 }
 
 function parseJsonObject(content: string): unknown {

@@ -5,7 +5,9 @@ import {
   ArchiveIcon,
   BookOpenIcon,
   BotIcon,
+  DatabaseIcon,
   Dice5Icon,
+  ExternalLinkIcon,
   LockIcon,
   PlusIcon,
   PlayIcon,
@@ -24,22 +26,32 @@ import { toast } from "sonner";
 import {
   defaultAiSettings,
   fetchProviderModels,
+  finalizeCharacterCreation,
   formatModelValue,
   generateProxyActionOptions,
-  generateCharacterWithAi,
+  createCharacterCreationSession,
   parseModelValue,
+  runCharacterCreationGmTurn,
+  testProviderConnection,
 } from "@/lib/ai";
 import { mergeSettings, playTurnStreaming } from "@/lib/game";
 import {
+  characterSheetTemplates,
   cloneCharacterForCampaign,
   createEmptyCharacter,
   createRandomCharacter,
-  getRuleset,
+  getCharacterSheetTemplate,
   rulesets,
   toLibraryEntry,
 } from "@/lib/rulesets";
 import { createRepository, type GameRepository } from "@/lib/storage";
-import { importRulebookDocument } from "@/lib/rag";
+import { buildRulesRagContext, importRulebookDocument } from "@/lib/rag";
+import { PINECONE_USAGE_URL } from "@/lib/pinecone";
+import {
+  getDisplayFilePath,
+  isSupportedRulebookFile,
+  readRulebookFiles,
+} from "@/lib/rulebook-files";
 import { createId, nowIso } from "@/lib/id";
 import type {
   AiAgentConfig,
@@ -48,6 +60,7 @@ import type {
   Campaign,
   CampaignDetail,
   CharacterCard,
+  CharacterCreationSession,
   CharacterLibraryEntry,
   RulebookDocument,
 } from "@/types";
@@ -106,17 +119,22 @@ const defaultCampaignForm = {
   title: "雾港失踪案",
   premise: "潮湿港城里，一封没有署名的求救信把主角引向旧灯塔。",
   rulesetId: "light-rules-v1",
-  characterConcept: "擅长观察的民俗调查员",
-  characterMode: "random" as CharacterMode,
+  characterConcept: "",
+  characterMode: "gm" as CharacterMode,
   existingCharacterId: "",
 };
 
-type CharacterMode = "random" | "existing" | "manual";
+type CharacterMode = "gm" | "random" | "existing" | "manual";
+
+const defaultRulebookCharacterType = "通用";
+const rulebookCharacterTypeOptions = characterSheetTemplates.map(
+  (template) => template.name,
+);
 
 const defaultSeed = {
-  concept: "擅长观察的民俗调查员",
-  tone: "悬疑、低魔、有人情味",
-  profession: "调查员",
+  concept: "",
+  tone: "",
+  profession: "",
 };
 
 type ThemeMode = "system" | "light" | "dark";
@@ -164,9 +182,11 @@ function App() {
   const [libraryCharacters, setLibraryCharacters] = useState<CharacterLibraryEntry[]>([]);
   const [libraryRulesetId, setLibraryRulesetId] = useState("light-rules-v1");
   const [rulebookDocuments, setRulebookDocuments] = useState<RulebookDocument[]>([]);
-  const [rulebookRulesetId, setRulebookRulesetId] = useState("light-rules-v1");
-  const [rulebookTitle, setRulebookTitle] = useState("");
-  const [rulebookContent, setRulebookContent] = useState("");
+  const [rulebookCategory, setRulebookCategory] = useState("轻规则 v1");
+  const [rulebookCharacterType, setRulebookCharacterType] = useState(
+    defaultRulebookCharacterType,
+  );
+  const [rulebookFiles, setRulebookFiles] = useState<File[]>([]);
   const [editingCharacter, setEditingCharacter] = useState<CharacterLibraryEntry>(() =>
     toLibraryEntry(createEmptyCharacter("light-rules-v1"), "manual"),
   );
@@ -175,11 +195,21 @@ function App() {
   const [activePage, setActivePage] = useState<"game" | "characters" | "rules">("game");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fetchingProviderId, setFetchingProviderId] = useState<string>();
+  const [testingProviderId, setTestingProviderId] = useState<string>();
   const [preferences, setPreferences] = useState<AppPreferences>(() =>
     loadPreferences(),
   );
   const [campaignForm, setCampaignForm] = useState(defaultCampaignForm);
   const [seed, setSeed] = useState(defaultSeed);
+  const [libraryCreationSession, setLibraryCreationSession] =
+    useState<CharacterCreationSession | null>(null);
+  const [libraryCreationInput, setLibraryCreationInput] = useState("");
+  const [campaignCreationSession, setCampaignCreationSession] =
+    useState<CharacterCreationSession | null>(null);
+  const [campaignCreationInput, setCampaignCreationInput] = useState("");
+  const [creationOverlay, setCreationOverlay] = useState<"library" | "campaign" | null>(
+    null,
+  );
   const [proxyMode, setProxyMode] = useState(false);
   const [proxyOptions, setProxyOptions] = useState<string[]>([]);
   const [generatingProxyOptions, setGeneratingProxyOptions] = useState(false);
@@ -189,16 +219,38 @@ function App() {
     "我检查求救信上的水渍和折痕，寻找寄信人的线索。",
   );
 
-  const activeRuleset = useMemo(
-    () => getRuleset(detail?.campaign.rulesetId ?? campaignForm.rulesetId),
-    [campaignForm.rulesetId, detail?.campaign.rulesetId],
+  const campaignRulebookOptions = useMemo(
+    () => getCampaignRulebookOptions(rulebookDocuments),
+    [rulebookDocuments],
   );
+  const campaignRulesetDescription = getRulesetDescription(campaignForm.rulesetId);
+  const campaignCharacterType = getRulebookCharacterTypeForRuleset(
+    campaignForm.rulesetId,
+    rulebookDocuments,
+  );
+  const libraryCharacterType = getRulebookCharacterTypeForRuleset(
+    libraryRulesetId,
+    rulebookDocuments,
+  );
+  const activeCampaignRulebook = detail
+    ? rulebookDocuments.find(
+        (document) => document.rulesetId === detail.campaign.rulesetId,
+      )
+    : undefined;
+  const activeCampaignRulesetLabel = detail
+    ? getRulebookCategoryLabel(detail.campaign.rulesetId)
+    : "";
+  const activeCampaignCharacterTypeLabel = activeCampaignRulebook
+    ? getRulebookCharacterTypeLabel(activeCampaignRulebook)
+    : "";
   const visibleLibraryCharacters = useMemo(
     () =>
       libraryCharacters.filter(
-        (character) => character.rulesetId === libraryRulesetId,
+        (character) =>
+          character.rulesetId === libraryRulesetId &&
+          getCharacterTypeLabel(character) === libraryCharacterType,
       ),
-    [libraryCharacters, libraryRulesetId],
+    [libraryCharacters, libraryRulesetId, libraryCharacterType],
   );
 
   useEffect(() => {
@@ -254,11 +306,295 @@ function App() {
     setRulebookDocuments(await requireRepository().listRulebookDocuments());
   }
 
+  async function buildCharacterCreationContext(
+    rulesetId: string,
+    characterType: string,
+    playerInput = "",
+  ): Promise<string> {
+    if (!settings) {
+      return "";
+    }
+    try {
+      return await buildRulesRagContext(
+        requireRepository(),
+        settings,
+        rulesetId,
+        [
+          "角色创建",
+          "制卡",
+          "玩家角色卡",
+          "属性",
+          "技能",
+          "点数分配",
+          characterType,
+          playerInput,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    } catch (error) {
+      console.warn("制卡规则书 RAG 检索失败，继续使用模板制卡。", error);
+      return "";
+    }
+  }
+
   function requireRepository(): GameRepository {
     if (!repositoryRef.current) {
       throw new Error("存储尚未初始化。");
     }
     return repositoryRef.current;
+  }
+
+  async function handleStartLibraryCreation() {
+    setBusy(true);
+    try {
+      const rulesContext = await buildCharacterCreationContext(
+        libraryRulesetId,
+        libraryCharacterType,
+        seed.concept,
+      );
+      setLibraryCreationSession(
+        createCharacterCreationSession(
+          libraryRulesetId,
+          libraryCharacterType,
+          seed,
+          rulesContext,
+        ),
+      );
+      setCreationOverlay("library");
+      toast.success("制卡 GM 已准备好。");
+    } catch (error) {
+      console.error("启动制卡 GM 失败", error);
+      toast.error(getErrorMessage(error, "启动制卡 GM 失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSendLibraryCreationMessage() {
+    if (!settings) {
+      return;
+    }
+    const session =
+      libraryCreationSession ??
+      createCharacterCreationSession(libraryRulesetId, libraryCharacterType, seed);
+    const input = libraryCreationInput;
+    const streamingMessageId = createId("chargenmsg");
+    const optimisticSession: CharacterCreationSession = {
+      ...session,
+      messages: [
+        ...session.messages,
+        {
+          id: createId("chargenmsg"),
+          author: "player",
+          content: input,
+          createdAt: nowIso(),
+        },
+        {
+          id: streamingMessageId,
+          author: "GM",
+          content: "",
+          createdAt: nowIso(),
+        },
+      ],
+      status: "chatting",
+      updatedAt: nowIso(),
+    };
+    setLibraryCreationInput("");
+    setLibraryCreationSession(optimisticSession);
+    setBusy(true);
+    try {
+      const rulesContext = await buildCharacterCreationContext(
+        libraryRulesetId,
+        libraryCharacterType,
+        input,
+      );
+      const nextSession = await runCharacterCreationGmTurn(
+        settings,
+        session,
+        input,
+        rulesContext,
+        (token) => {
+          setLibraryCreationSession((current) =>
+            current
+              ? {
+                  ...current,
+                  messages: current.messages.map((message) =>
+                    message.id === streamingMessageId
+                      ? { ...message, content: `${message.content}${token}` }
+                      : message,
+                  ),
+                }
+              : current,
+          );
+        },
+      );
+      setLibraryCreationSession(nextSession);
+    } catch (error) {
+      setLibraryCreationInput(input);
+      console.error("制卡 GM 回合失败", error);
+      toast.error(getErrorMessage(error, "制卡 GM 回合失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleFinalizeLibraryCreation() {
+    if (!settings || !libraryCreationSession) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const character = await finalizeCharacterCreation(settings, {
+        ...libraryCreationSession,
+        status: "generating",
+      });
+      const entry = toLibraryEntry(character, "ai");
+      await requireRepository().saveLibraryCharacter(entry);
+      setEditingCharacter(entry);
+      setLibraryCreationSession({
+        ...libraryCreationSession,
+        draft: character,
+        status: "completed",
+        updatedAt: nowIso(),
+      });
+      setCreationOverlay(null);
+      await reloadLibrary();
+      toast.success("制卡 GM 已完成角色卡并加入角色库。");
+    } catch (error) {
+      console.error("完成制卡失败", error);
+      toast.error(getErrorMessage(error, "完成制卡失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartCampaignCreation() {
+    setBusy(true);
+    try {
+      const rulesContext = await buildCharacterCreationContext(
+        campaignForm.rulesetId,
+        campaignCharacterType,
+        campaignForm.characterConcept,
+      );
+      setCampaignCreationSession(
+        createCharacterCreationSession(
+          campaignForm.rulesetId,
+          campaignCharacterType,
+          {
+            concept: campaignForm.characterConcept,
+            tone: campaignForm.premise,
+            profession: "",
+          },
+          rulesContext,
+        ),
+      );
+      setCreationOverlay("campaign");
+      toast.success("战役制卡 GM 已准备好。");
+    } catch (error) {
+      console.error("启动战役制卡 GM 失败", error);
+      toast.error(getErrorMessage(error, "启动战役制卡 GM 失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSendCampaignCreationMessage() {
+    if (!settings) {
+      return;
+    }
+    const session =
+      campaignCreationSession ??
+      createCharacterCreationSession(campaignForm.rulesetId, campaignCharacterType, {
+        concept: campaignForm.characterConcept,
+        tone: campaignForm.premise,
+        profession: "",
+      });
+    const input = campaignCreationInput;
+    const streamingMessageId = createId("chargenmsg");
+    const optimisticSession: CharacterCreationSession = {
+      ...session,
+      messages: [
+        ...session.messages,
+        {
+          id: createId("chargenmsg"),
+          author: "player",
+          content: input,
+          createdAt: nowIso(),
+        },
+        {
+          id: streamingMessageId,
+          author: "GM",
+          content: "",
+          createdAt: nowIso(),
+        },
+      ],
+      status: "chatting",
+      updatedAt: nowIso(),
+    };
+    setCampaignCreationInput("");
+    setCampaignCreationSession(optimisticSession);
+    setBusy(true);
+    try {
+      const rulesContext = await buildCharacterCreationContext(
+        campaignForm.rulesetId,
+        campaignCharacterType,
+        input,
+      );
+      const nextSession = await runCharacterCreationGmTurn(
+        settings,
+        session,
+        input,
+        rulesContext,
+        (token) => {
+          setCampaignCreationSession((current) =>
+            current
+              ? {
+                  ...current,
+                  messages: current.messages.map((message) =>
+                    message.id === streamingMessageId
+                      ? { ...message, content: `${message.content}${token}` }
+                      : message,
+                  ),
+                }
+              : current,
+          );
+        },
+      );
+      setCampaignCreationSession(nextSession);
+    } catch (error) {
+      setCampaignCreationInput(input);
+      console.error("战役制卡 GM 回合失败", error);
+      toast.error(getErrorMessage(error, "战役制卡 GM 回合失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleFinalizeCampaignCreation() {
+    if (!settings || !campaignCreationSession) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const character = await finalizeCharacterCreation(settings, {
+        ...campaignCreationSession,
+        status: "generating",
+      });
+      setCampaignCreationSession({
+        ...campaignCreationSession,
+        draft: character,
+        status: "completed",
+        updatedAt: nowIso(),
+      });
+      setCreationOverlay(null);
+      toast.success("玩家角色卡已完成，可以创建战役。");
+    } catch (error) {
+      console.error("完成战役制卡失败", error);
+      toast.error(getErrorMessage(error, "完成战役制卡失败"));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleCreateCampaign() {
@@ -268,17 +604,36 @@ function App() {
         (character) => character.id === campaignForm.existingCharacterId,
       );
       if (campaignForm.characterMode === "existing" && !selectedLibraryCharacter) {
-        throw new Error("请选择一个已有角色卡，或改用随机新角色/手动生成。");
+        throw new Error("请选择一个已有角色卡，或改用 GM 制卡/随机新角色/手动生成。");
+      }
+      if (
+        campaignForm.characterMode === "gm" &&
+        campaignCreationSession?.status !== "completed"
+      ) {
+        throw new Error("请先用制卡 GM 完成玩家角色卡。");
       }
       if (selectedLibraryCharacter?.lockedByCampaignId) {
         throw new Error("该角色卡已经加入其他战役，删除对应断点后才能再次使用。");
       }
+      if (
+        selectedLibraryCharacter &&
+        (selectedLibraryCharacter.rulesetId !== campaignForm.rulesetId ||
+          getCharacterTypeLabel(selectedLibraryCharacter) !== campaignCharacterType)
+      ) {
+        throw new Error("只能导入与当前战役规则书和角色卡类型一致的角色卡。");
+      }
       const character =
         campaignForm.characterMode === "existing" && selectedLibraryCharacter
           ? cloneCharacterForCampaign(selectedLibraryCharacter)
+          : campaignForm.characterMode === "gm" && campaignCreationSession
+            ? cloneCharacterForCampaign(campaignCreationSession.draft)
           : campaignForm.characterMode === "manual"
-            ? createEmptyCharacter(campaignForm.rulesetId, campaignForm.characterConcept)
-            : createRandomCharacter(campaignForm.rulesetId);
+            ? createEmptyCharacter(
+                campaignForm.rulesetId,
+                campaignForm.characterConcept,
+                campaignCharacterType,
+              )
+            : createRandomCharacter(campaignForm.rulesetId, campaignCharacterType);
       const nextDetail = await requireRepository().createCampaign({
         title: campaignForm.title || "未命名战役",
         premise: campaignForm.premise || "一场尚未揭晓的单人冒险。",
@@ -287,6 +642,7 @@ function App() {
         sourceCharacterId: selectedLibraryCharacter?.id,
       });
       setDetail(nextDetail);
+      setCampaignCreationSession(null);
       await reloadCampaigns(nextDetail.campaign.id);
       toast.success("战役已创建，可以从这里断点续玩。");
     } catch (error) {
@@ -302,6 +658,7 @@ function App() {
     try {
       const normalized: CharacterLibraryEntry = {
         ...character,
+        characterType: character.characterType || libraryCharacterType,
         source: character.source || "manual",
         updatedAt: nowIso(),
       };
@@ -312,27 +669,6 @@ function App() {
     } catch (error) {
       console.error("保存角色卡失败", error);
       toast.error(getErrorMessage(error, "保存角色卡失败"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleGenerateLibraryCharacter() {
-    if (!settings) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const generated = await generateCharacterWithAi(settings, libraryRulesetId, seed);
-      const entry = toLibraryEntry(generated, "ai");
-      await requireRepository().saveLibraryCharacter(entry);
-      setEditingCharacter(entry);
-      await reloadLibrary();
-      toast.success("角色卡已生成并加入角色库。");
-    } catch (error) {
-      console.error("生成角色卡失败", error);
-      toast.error(getErrorMessage(error, "生成角色卡失败"));
     } finally {
       setBusy(false);
     }
@@ -362,17 +698,24 @@ function App() {
 
     setImportingRulebook(true);
     try {
+      const category = rulebookCategory.trim();
+      if (!category) {
+        throw new Error("请先填写规则书库名称。");
+      }
+      const rulebook = await readRulebookFiles(rulebookFiles);
       const document = await importRulebookDocument(requireRepository(), {
-        rulesetId: rulebookRulesetId,
-        title: rulebookTitle,
-        sourceName: rulebookTitle || "manual",
-        content: rulebookContent,
+        rulesetId: category,
+        characterType: rulebookCharacterType,
+        title: category,
+        sourceName: rulebook.sourceName,
+        content: rulebook.content,
         settings,
       });
-      setRulebookTitle("");
-      setRulebookContent("");
+      setRulebookFiles([]);
       await reloadRulebooks();
-      toast.success(`规则书已导入，生成 ${document.chunkCount} 个检索片段。`);
+      toast.success(
+        `已导入 ${rulebook.fileCount} 个文件，生成 ${document.chunkCount} 个检索片段。`,
+      );
     } catch (error) {
       console.error("导入规则书失败", error);
       toast.error(getErrorMessage(error, "导入规则书失败"));
@@ -392,6 +735,31 @@ function App() {
       toast.error(getErrorMessage(error, "删除规则书失败"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleUpdateRulebookCharacterType(
+    documentId: string,
+    characterType: string,
+  ) {
+    const nextCharacterType = characterType.trim() || defaultRulebookCharacterType;
+    setRulebookDocuments((documents) =>
+      documents.map((document) =>
+        document.id === documentId
+          ? { ...document, characterType: nextCharacterType }
+          : document,
+      ),
+    );
+    try {
+      await requireRepository().updateRulebookDocumentMeta(documentId, {
+        characterType: nextCharacterType,
+      });
+      await reloadRulebooks();
+      toast.success("规则书标签已更新。");
+    } catch (error) {
+      console.error("更新规则书标签失败", error);
+      toast.error(getErrorMessage(error, "更新规则书标签失败"));
+      await reloadRulebooks();
     }
   }
 
@@ -467,6 +835,31 @@ function App() {
       toast.error(getErrorMessage(error, "获取模型失败"));
     } finally {
       setFetchingProviderId(undefined);
+    }
+  }
+
+  async function handleTestProvider(providerId: string) {
+    if (!settings) {
+      return;
+    }
+
+    const provider = settings.providers.find((item) => item.id === providerId);
+    if (!provider) {
+      toast.error("Provider 不存在。");
+      return;
+    }
+
+    setTestingProviderId(providerId);
+    try {
+      const result = await testProviderConnection(provider);
+      toast.success(
+        `${result.providerName} 可用：${result.model}，${result.latencyMs}ms，响应「${result.content.slice(0, 24)}」。`,
+      );
+    } catch (error) {
+      console.error("测试 Provider 失败", error);
+      toast.error(getErrorMessage(error, "测试 Provider 失败"));
+    } finally {
+      setTestingProviderId(undefined);
     }
   }
 
@@ -564,24 +957,25 @@ function App() {
               <FieldLabel htmlFor="ruleset">规则书</FieldLabel>
               <Select
                 value={campaignForm.rulesetId}
-                onValueChange={(rulesetId) =>
-                  setCampaignForm({ ...campaignForm, rulesetId })
-                }
+                onValueChange={(rulesetId) => {
+                  setCampaignForm({ ...campaignForm, rulesetId });
+                  setCampaignCreationSession(null);
+                }}
               >
                 <SelectTrigger id="ruleset">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {rulesets.map((ruleset) => (
-                      <SelectItem key={ruleset.id} value={ruleset.id}>
-                        {ruleset.name}
+                    {campaignRulebookOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldDescription>{activeRuleset.description}</FieldDescription>
+              <FieldDescription>{campaignRulesetDescription}</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="campaign-premise">开局设定</FieldLabel>
@@ -613,18 +1007,20 @@ function App() {
               <FieldLabel htmlFor="character-mode">角色来源</FieldLabel>
               <Select
                 value={campaignForm.characterMode}
-                onValueChange={(characterMode) =>
+                onValueChange={(characterMode) => {
                   setCampaignForm({
                     ...campaignForm,
                     characterMode: characterMode as CharacterMode,
-                  })
-                }
+                  });
+                  setCampaignCreationSession(null);
+                }}
               >
                 <SelectTrigger id="character-mode" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
+                    <SelectItem value="gm">GM 制卡</SelectItem>
                     <SelectItem value="random">随机新角色</SelectItem>
                     <SelectItem value="existing">已有角色</SelectItem>
                     <SelectItem value="manual">手动生成</SelectItem>
@@ -646,9 +1042,16 @@ function App() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectLabel>{getRuleset(campaignForm.rulesetId).name}</SelectLabel>
+                      <SelectLabel>
+                        {getRulebookCategoryLabel(campaignForm.rulesetId)} ·{" "}
+                        {campaignCharacterType}
+                      </SelectLabel>
                       {libraryCharacters
-                        .filter((character) => character.rulesetId === campaignForm.rulesetId)
+                        .filter(
+                          (character) =>
+                            character.rulesetId === campaignForm.rulesetId &&
+                            getCharacterTypeLabel(character) === campaignCharacterType,
+                        )
                         .map((character) => (
                           <SelectItem
                             key={character.id}
@@ -665,6 +1068,41 @@ function App() {
                   </SelectContent>
                 </Select>
                 <FieldDescription>可在顶部“角色卡”页面维护自己的角色库。</FieldDescription>
+              </Field>
+            )}
+            {campaignForm.characterMode === "gm" && (
+              <Field>
+                <FieldLabel>玩家角色卡</FieldLabel>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {campaignCreationSession?.status === "completed"
+                          ? campaignCreationSession.draft.name
+                          : "尚未完成 GM 制卡"}
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {campaignCreationSession?.status === "completed"
+                          ? campaignCreationSession.draft.concept
+                          : "点击打开独立制卡页，与 GM 交流后生成玩家角色卡。"}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        campaignCreationSession
+                          ? setCreationOverlay("campaign")
+                          : void handleStartCampaignCreation()
+                      }
+                      disabled={busy}
+                    >
+                      <SparklesIcon data-icon="inline-start" />
+                      {campaignCreationSession ? "打开制卡页" : "开始制卡"}
+                    </Button>
+                  </div>
+                </div>
               </Field>
             )}
             <Button onClick={handleCreateCampaign} disabled={busy}>
@@ -769,7 +1207,12 @@ function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <AvatarPreview preferences={preferences} size="sm" />
-            <Badge variant="secondary">{activeRuleset.name}</Badge>
+            {activeCampaignRulesetLabel && (
+              <Badge variant="secondary">{activeCampaignRulesetLabel}</Badge>
+            )}
+            {activeCampaignCharacterTypeLabel && (
+              <Badge variant="outline">{activeCampaignCharacterTypeLabel}</Badge>
+            )}
             <Button
               variant={activePage === "game" ? "secondary" : "ghost"}
               onClick={() => setActivePage("game")}
@@ -800,9 +1243,11 @@ function App() {
               settings={settings}
               busy={busy}
               fetchingProviderId={fetchingProviderId}
+              testingProviderId={testingProviderId}
               onChange={setSettings}
               onSave={handleSaveSettings}
               onFetchProviderModels={handleFetchProviderModels}
+              onTestProvider={handleTestProvider}
             />
           </div>
         </div>
@@ -814,24 +1259,44 @@ function App() {
           <CharacterLibraryPage
             busy={busy}
             rulesetId={libraryRulesetId}
+            rulebookDocuments={rulebookDocuments}
             characters={visibleLibraryCharacters}
             editingCharacter={editingCharacter}
             seed={seed}
             onRulesetChange={async (rulesetId) => {
               setLibraryRulesetId(rulesetId);
-              setEditingCharacter(toLibraryEntry(createEmptyCharacter(rulesetId), "manual"));
+              setLibraryCreationSession(null);
+              setEditingCharacter(
+                toLibraryEntry(
+                  createEmptyCharacter(
+                    rulesetId,
+                    undefined,
+                    getRulebookCharacterTypeForRuleset(rulesetId, rulebookDocuments),
+                  ),
+                  "manual",
+                ),
+              );
               await reloadLibrary();
             }}
             onEdit={setEditingCharacter}
             onEditingChange={setEditingCharacter}
             onSeedChange={setSeed}
+            onStartCreation={handleStartLibraryCreation}
+            onOpenCreation={() =>
+              libraryCreationSession
+                ? setCreationOverlay("library")
+                : void handleStartLibraryCreation()
+            }
+            creationStatus={libraryCreationSession?.status}
             onNew={() =>
               setEditingCharacter(
-                toLibraryEntry(createEmptyCharacter(libraryRulesetId), "manual"),
+                toLibraryEntry(
+                  createEmptyCharacter(libraryRulesetId, undefined, libraryCharacterType),
+                  "manual",
+                ),
               )
             }
             onSave={handleSaveLibraryCharacter}
-            onGenerate={handleGenerateLibraryCharacter}
             onDelete={handleDeleteLibraryCharacter}
           />
           </div>
@@ -842,16 +1307,21 @@ function App() {
             <RulebookPage
               busy={busy || importingRulebook}
               settings={settings}
-              rulesetId={rulebookRulesetId}
+              category={rulebookCategory}
+              categories={getRulebookCategories(rulebookDocuments)}
+              characterType={rulebookCharacterType}
               documents={rulebookDocuments.filter(
-                (document) => document.rulesetId === rulebookRulesetId,
+                (document) =>
+                  getRulebookCategoryAliases(rulebookCategory).includes(
+                    document.rulesetId,
+                  ),
               )}
-              title={rulebookTitle}
-              content={rulebookContent}
-              onRulesetChange={setRulebookRulesetId}
-              onTitleChange={setRulebookTitle}
-              onContentChange={setRulebookContent}
+              files={rulebookFiles}
+              onCategoryChange={setRulebookCategory}
+              onCharacterTypeChange={setRulebookCharacterType}
+              onFilesChange={setRulebookFiles}
               onImport={handleImportRulebook}
+              onUpdateCharacterType={handleUpdateRulebookCharacterType}
               onDelete={handleDeleteRulebook}
             />
           </div>
@@ -924,6 +1394,36 @@ function App() {
         }}
         onConfirm={() => void handleDeleteCampaign()}
       />
+      {creationOverlay === "library" && (
+        <CharacterCreationOverlay
+          title="角色库 GM 制卡"
+          subtitle={`${getRulebookCategoryLabel(libraryRulesetId)} · ${libraryCharacterType}`}
+          busy={busy}
+          session={libraryCreationSession}
+          input={libraryCreationInput}
+          onInputChange={setLibraryCreationInput}
+          onStart={handleStartLibraryCreation}
+          onSend={handleSendLibraryCreationMessage}
+          onFinalize={handleFinalizeLibraryCreation}
+          onReset={() => setLibraryCreationSession(null)}
+          onClose={() => setCreationOverlay(null)}
+        />
+      )}
+      {creationOverlay === "campaign" && (
+        <CharacterCreationOverlay
+          title="战役 GM 制卡"
+          subtitle={`${getRulebookCategoryLabel(campaignForm.rulesetId)} · ${campaignCharacterType}`}
+          busy={busy}
+          session={campaignCreationSession}
+          input={campaignCreationInput}
+          onInputChange={setCampaignCreationInput}
+          onStart={handleStartCampaignCreation}
+          onSend={handleSendCampaignCreationMessage}
+          onFinalize={handleFinalizeCampaignCreation}
+          onReset={() => setCampaignCreationSession(null)}
+          onClose={() => setCreationOverlay(null)}
+        />
+      )}
       <Toaster />
     </div>
   );
@@ -1014,6 +1514,7 @@ function applyPreferences(preferences: AppPreferences): void {
 function CharacterLibraryPage({
   busy,
   rulesetId,
+  rulebookDocuments,
   characters,
   editingCharacter,
   seed,
@@ -1021,13 +1522,16 @@ function CharacterLibraryPage({
   onEdit,
   onEditingChange,
   onSeedChange,
+  onStartCreation,
+  onOpenCreation,
+  creationStatus,
   onNew,
   onSave,
-  onGenerate,
   onDelete,
 }: {
   busy: boolean;
   rulesetId: string;
+  rulebookDocuments: RulebookDocument[];
   characters: CharacterLibraryEntry[];
   editingCharacter: CharacterLibraryEntry;
   seed: typeof defaultSeed;
@@ -1035,9 +1539,11 @@ function CharacterLibraryPage({
   onEdit: (character: CharacterLibraryEntry) => void;
   onEditingChange: (character: CharacterLibraryEntry) => void;
   onSeedChange: (seed: typeof defaultSeed) => void;
+  onStartCreation: () => void;
+  onOpenCreation: () => void;
+  creationStatus?: CharacterCreationSession["status"];
   onNew: () => void;
   onSave: (character: CharacterLibraryEntry) => void;
-  onGenerate: () => void;
   onDelete: (characterId: string) => void;
 }) {
   const [attributeUnlockedCharacterId, setAttributeUnlockedCharacterId] = useState<string>();
@@ -1046,6 +1552,7 @@ function CharacterLibraryPage({
     editingCharacter.source === "ai" || editingCharacter.source === "random";
   const attributesUnlocked =
     !requiresAttributeUnlock || attributeUnlockedCharacterId === editingCharacter.id;
+  const characterTemplate = getCharacterSheetTemplate(editingCharacter.characterType);
 
   function requestAttributeUnlock(): boolean {
     if (isCampaignLocked) {
@@ -1088,23 +1595,34 @@ function CharacterLibraryPage({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {rulesets.map((ruleset) => (
-                    <SelectItem key={ruleset.id} value={ruleset.id}>
-                      {ruleset.name}
+                  {getCampaignRulebookOptions(rulebookDocuments).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
+            <FieldDescription>
+              当前角色卡类型：{getCharacterTypeLabel(editingCharacter)}
+            </FieldDescription>
           </Field>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onNew} disabled={busy}>
               <PlusIcon data-icon="inline-start" />
               新建
             </Button>
-            <Button onClick={onGenerate} disabled={busy}>
+            <Button onClick={onStartCreation} disabled={busy}>
               <SparklesIcon data-icon="inline-start" />
-              生成
+              新开制卡页
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onOpenCreation}
+              disabled={busy && !creationStatus}
+            >
+              <BotIcon data-icon="inline-start" />
+              {creationStatus ? "打开制卡页" : "GM 制卡"}
             </Button>
           </div>
           <ScrollArea className="h-[520px]">
@@ -1148,7 +1666,10 @@ function CharacterLibraryPage({
           <div className="flex items-start justify-between gap-3">
             <div>
               <CardTitle>编辑角色卡</CardTitle>
-              <CardDescription>{getRuleset(editingCharacter.rulesetId).name}</CardDescription>
+              <CardDescription>
+                {getRulebookCategoryLabel(editingCharacter.rulesetId)} ·{" "}
+                {getCharacterTypeLabel(editingCharacter)}
+              </CardDescription>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               {isCampaignLocked && (
@@ -1235,8 +1756,8 @@ function CharacterLibraryPage({
                       <Input
                         id={`attr-${key}`}
                         type="number"
-                        min={1}
-                        max={5}
+                        min={characterTemplate.attributeMin}
+                        max={characterTemplate.attributeMax}
                         value={value}
                         readOnly={isCampaignLocked || !attributesUnlocked}
                         onMouseDown={() => {
@@ -1264,6 +1785,46 @@ function CharacterLibraryPage({
                     </Field>
                   ))}
                 </div>
+                <Field>
+                  <FieldLabel>技能</FieldLabel>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {Object.entries(editingCharacter.skills).map(([key, value]) => (
+                      <Field key={key}>
+                        <FieldLabel htmlFor={`skill-${key}`}>{key}</FieldLabel>
+                        <Input
+                          id={`skill-${key}`}
+                          type="number"
+                          min={characterTemplate.skillMin}
+                          max={characterTemplate.skillMax}
+                          value={value}
+                          readOnly={isCampaignLocked || !attributesUnlocked}
+                          onMouseDown={() => {
+                            if (!attributesUnlocked || isCampaignLocked) {
+                              requestAttributeUnlock();
+                            }
+                          }}
+                          onFocus={() => {
+                            if (!attributesUnlocked || isCampaignLocked) {
+                              requestAttributeUnlock();
+                            }
+                          }}
+                          onChange={(event) => {
+                            if (!requestAttributeUnlock()) {
+                              return;
+                            }
+                            updateCharacter({
+                              skills: {
+                                ...editingCharacter.skills,
+                                [key]: Number(event.target.value),
+                              },
+                            });
+                          }}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                  <FieldDescription>{characterTemplate.description}</FieldDescription>
+                </Field>
                 <Field>
                   <FieldLabel htmlFor="library-notes">备注</FieldLabel>
                   <Textarea
@@ -1322,10 +1883,25 @@ function CharacterLibraryPage({
                     }
                   />
                 </Field>
-                <Button onClick={onGenerate} disabled={busy}>
-                  <SparklesIcon data-icon="inline-start" />
-                  生成并保存到角色库
-                </Button>
+                <div className="rounded-md border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium">独立 GM 制卡页</div>
+                      <div className="text-xs text-muted-foreground">
+                        生成对话会在覆盖主界面的独立页面中进行。
+                      </div>
+                    </div>
+                    <Button onClick={onOpenCreation} disabled={busy && !creationStatus}>
+                      <SparklesIcon data-icon="inline-start" />
+                      {creationStatus ? "继续制卡" : "打开制卡页"}
+                    </Button>
+                  </div>
+                  {creationStatus === "completed" && (
+                    <Badge variant="secondary" className="mt-3">
+                      已完成
+                    </Badge>
+                  )}
+                </div>
               </FieldGroup>
             </TabsContent>
           </Tabs>
@@ -1336,100 +1912,434 @@ function CharacterLibraryPage({
   );
 }
 
+function CharacterCreationOverlay({
+  title,
+  subtitle,
+  busy,
+  session,
+  input,
+  onInputChange,
+  onStart,
+  onSend,
+  onFinalize,
+  onReset,
+  onClose,
+}: {
+  title: string;
+  subtitle: string;
+  busy: boolean;
+  session: CharacterCreationSession | null;
+  input: string;
+  onInputChange: (value: string) => void;
+  onStart: () => void;
+  onSend: () => void;
+  onFinalize: () => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  const draft = session?.draft;
+  return (
+    <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm">
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="border-b bg-background/95 px-6 py-4">
+          <div className="mx-auto flex max-w-7xl items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="truncate text-xl font-semibold">{title}</h2>
+              <p className="text-sm text-muted-foreground">
+                {subtitle} · 通过对话确定设定，数值由 GM 按模板和规则自动处理。
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" onClick={onStart} disabled={busy}>
+                <RefreshCwIcon data-icon="inline-start" />
+                {session ? "重开" : "开始"}
+              </Button>
+              {session && (
+                <Button variant="ghost" onClick={onReset} disabled={busy}>
+                  清空
+                </Button>
+              )}
+              <Button variant="secondary" onClick={onClose} disabled={busy}>
+                返回
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-hidden px-6 py-4">
+          <div className="mx-auto grid h-full max-w-7xl gap-4 lg:grid-cols-[minmax(0,1.2fr)_380px]">
+            {!session ? (
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle>尚未开始制卡</CardTitle>
+                  <CardDescription>
+                    点击“开始”后，GM 会读取当前规则书、RAG 片段和角色卡模板。
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button onClick={onStart} disabled={busy}>
+                    <SparklesIcon data-icon="inline-start" />
+                    开始 GM 制卡
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <Card className="min-h-0 overflow-hidden">
+                  <CardHeader>
+                    <CardTitle>制卡对话</CardTitle>
+                    <CardDescription>
+                      直接描述角色想法，GM 会在需要时投骰并维护草稿。
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex h-[calc(100vh-190px)] min-h-0 flex-col gap-3">
+                    <ScrollArea className="min-h-0 flex-1 pr-3">
+                      <div className="flex flex-col gap-3">
+                        {session.messages.map((message) => (
+                          <div
+                            key={message.id}
+                            className={
+                              message.author === "player"
+                                ? "ml-auto max-w-[82%] rounded-md bg-primary px-4 py-3 text-primary-foreground"
+                                : "mr-auto max-w-[88%] rounded-md border bg-card px-4 py-3"
+                            }
+                          >
+                            <div className="mb-1 text-[11px] opacity-70">
+                              {message.author === "player" ? "玩家" : "制卡 GM"}
+                            </div>
+                            <div className="text-sm leading-6">
+                              {message.content ? (
+                                <MarkdownMessage content={message.content} />
+                              ) : (
+                                <span className="text-muted-foreground">生成中...</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                    <div className="grid gap-2 border-t pt-3">
+                      <Textarea
+                        value={input}
+                        placeholder="告诉 GM 你的角色想法、职业、弱点、关系或想随机的部分。"
+                        className="min-h-24"
+                        onChange={(event) => onInputChange(event.target.value)}
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button onClick={onSend} disabled={busy || !input.trim()}>
+                          <BotIcon data-icon="inline-start" />
+                          发送给 GM
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={onFinalize}
+                          disabled={
+                            busy ||
+                            !session.messages.some((message) => message.author === "player")
+                          }
+                        >
+                          <SparklesIcon data-icon="inline-start" />
+                          生成最终角色卡
+                        </Button>
+                        {session.status === "completed" && (
+                          <Badge variant="secondary">已完成</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="min-h-0 overflow-hidden">
+                  <CardHeader>
+                    <CardTitle>草稿预览</CardTitle>
+                    <CardDescription>工具调用：{session.toolResults.length} 次</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {draft ? (
+                      <ScrollArea className="h-[calc(100vh-210px)] pr-3">
+                        <div className="grid gap-4 text-sm">
+                          <div>
+                            <div className="mb-1 text-xs text-muted-foreground">姓名</div>
+                            <div className="font-medium">{draft.name}</div>
+                          </div>
+                          <div>
+                            <div className="mb-1 text-xs text-muted-foreground">概念</div>
+                            <div>{draft.concept}</div>
+                          </div>
+                          <div>
+                            <div className="mb-1 text-xs text-muted-foreground">属性</div>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(draft.attributes).map(([key, value]) => (
+                                <Badge key={key} variant="secondary">
+                                  {key} {value}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="mb-1 text-xs text-muted-foreground">技能</div>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(draft.skills).map(([key, value]) => (
+                                <Badge key={key} variant="outline">
+                                  {key} {value}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          {draft.background && (
+                            <div>
+                              <div className="mb-1 text-xs text-muted-foreground">背景</div>
+                              <MarkdownMessage content={draft.background} />
+                            </div>
+                          )}
+                          {draft.notes && (
+                            <div>
+                              <div className="mb-1 text-xs text-muted-foreground">备注</div>
+                              <MarkdownMessage content={draft.notes} />
+                            </div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    ) : (
+                      <Alert>
+                        <BotIcon />
+                        <AlertTitle>暂无草稿</AlertTitle>
+                        <AlertDescription>开始制卡后会显示当前角色草稿。</AlertDescription>
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
 function RulebookPage({
   busy,
   settings,
-  rulesetId,
+  category,
+  categories,
+  characterType,
   documents,
-  title,
-  content,
-  onRulesetChange,
-  onTitleChange,
-  onContentChange,
+  files,
+  onCategoryChange,
+  onCharacterTypeChange,
+  onFilesChange,
   onImport,
+  onUpdateCharacterType,
   onDelete,
 }: {
   busy: boolean;
   settings?: AiSettings;
-  rulesetId: string;
+  category: string;
+  categories: string[];
+  characterType: string;
   documents: RulebookDocument[];
-  title: string;
-  content: string;
-  onRulesetChange: (rulesetId: string) => void;
-  onTitleChange: (title: string) => void;
-  onContentChange: (content: string) => void;
+  files: File[];
+  onCategoryChange: (category: string) => void;
+  onCharacterTypeChange: (characterType: string) => void;
+  onFilesChange: (files: File[]) => void;
   onImport: () => void;
+  onUpdateCharacterType: (documentId: string, characterType: string) => void;
   onDelete: (documentId: string) => void;
 }) {
-  async function handleFile(file: File | undefined) {
-    if (!file) {
-      return;
-    }
-    onTitleChange(title || file.name.replace(/\.[^.]+$/, ""));
-    onContentChange(await readFileAsText(file));
+  function handleFiles(fileList: FileList | null) {
+    const selected = Array.from(fileList ?? []).filter(isSupportedRulebookFile);
+    onFilesChange(dedupeRulebookFiles([...files, ...selected]));
   }
 
-  const ragReady = Boolean(settings?.rag.enabled && settings.rag.embeddingModel.trim());
+  const ragReady = Boolean(
+    settings?.rag.enabled &&
+      (settings.rag.source === "pinecone"
+        ? settings.rag.pineconeApiKey.trim() &&
+          settings.rag.pineconeIndexName.trim()
+        : settings.rag.embeddingModel.trim()),
+  );
+  const ragModeLabel =
+    settings?.rag.source === "pinecone"
+      ? "上传到 Pinecone RAG"
+      : "生成向量并导入";
+  const canImport = Boolean(category.trim() && files.length && ragReady);
+  const folderInputProps = {
+    webkitdirectory: "",
+    directory: "",
+  } as Record<string, string>;
 
   return (
     <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
-      <Card className="min-h-0">
+      <Card className="flex h-full min-h-0 flex-col overflow-hidden">
         <CardHeader>
           <CardTitle>规则书导入</CardTitle>
           <CardDescription>
-            文本会按片段生成 embedding，回合中自动检索同规则书内容。
+            仅导入带文字层、可复制文字的 PDF / TXT / Markdown，扫描版 PDF 会直接拒收。
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+          <Alert>
+            <BookOpenIcon />
+            <AlertTitle>请上传文字版规则书</AlertTitle>
+            <AlertDescription>
+              扫描版 PDF 没有可抽取文本，无法进入规则书 RAG。建议从{" "}
+              <a
+                className="underline underline-offset-4"
+                href="https://www.drivethrurpg.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                DriveThruRPG
+              </a>
+              、{" "}
+              <a
+                className="underline underline-offset-4"
+                href="https://itch.io/physical-games"
+                target="_blank"
+                rel="noreferrer"
+              >
+                itch.io Tabletop
+              </a>
+              、{" "}
+              <a
+                className="underline underline-offset-4"
+                href="https://www.dndbeyond.com/sources/dnd/free-rules"
+                target="_blank"
+                rel="noreferrer"
+              >
+                D&D Free Rules
+              </a>
+              、{" "}
+              <a
+                className="underline underline-offset-4"
+                href="https://paizo.com/pathfinder/getstarted"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Paizo Pathfinder
+              </a>
+              、{" "}
+              <a
+                className="underline underline-offset-4"
+                href="https://www.chaosium.com/cthulhu-quickstart/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Chaosium Quickstart
+              </a>
+              、{" "}
+              <a
+                className="underline underline-offset-4"
+                href="https://fate-srd.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Fate SRD
+              </a>{" "}
+              等官方商店、SRD、开放规则文档或授权电子书渠道获取文字层 PDF /
+              TXT / Markdown。
+            </AlertDescription>
+          </Alert>
           <Field>
-            <FieldLabel htmlFor="rulebook-ruleset">规则书分类</FieldLabel>
-            <Select value={rulesetId} onValueChange={onRulesetChange}>
-              <SelectTrigger id="rulebook-ruleset" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {rulesets.map((ruleset) => (
-                    <SelectItem key={ruleset.id} value={ruleset.id}>
-                      {ruleset.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="rulebook-title">标题</FieldLabel>
+            <FieldLabel htmlFor="rulebook-category">规则书库名称</FieldLabel>
             <Input
-              id="rulebook-title"
-              value={title}
-              onChange={(event) => onTitleChange(event.target.value)}
-              placeholder="例如：轻规则 v1 判定补充"
+              id="rulebook-category"
+              list="rulebook-categories"
+              value={category}
+              onChange={(event) => onCategoryChange(event.target.value)}
+              placeholder="例如：克苏鲁 7版核心规则书"
             />
+            <datalist id="rulebook-categories">
+              {categories.map((item) => (
+                <option key={item} value={item} />
+              ))}
+            </datalist>
+            <FieldDescription>
+              这里就是规则书分类；同名导入会进入同一个知识库，战役可复用。
+            </FieldDescription>
           </Field>
           <Field>
-            <FieldLabel htmlFor="rulebook-file">导入文本文件</FieldLabel>
+            <FieldLabel htmlFor="rulebook-character-type">角色卡类型标签</FieldLabel>
             <Input
-              id="rulebook-file"
+              id="rulebook-character-type"
+              list="rulebook-character-types"
+              value={characterType}
+              onChange={(event) => onCharacterTypeChange(event.target.value)}
+              placeholder="例如：DnD、CoC、PF2e"
+            />
+            <datalist id="rulebook-character-types">
+              {rulebookCharacterTypeOptions.map((item) => (
+                <option key={item} value={item} />
+              ))}
+            </datalist>
+            <FieldDescription>
+              用于提示该规则书适配的角色卡类型；当前角色卡结构仍沿用应用内置模板。
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rulebook-files">选择规则书文件</FieldLabel>
+            <Input
+              id="rulebook-files"
               type="file"
-              accept=".txt,.md,.markdown,text/plain,text/markdown"
-              onChange={(event) => void handleFile(event.target.files?.[0])}
+              multiple
+              accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"
+              onChange={(event) => handleFiles(event.target.files)}
             />
-            <FieldDescription>也可以直接在右侧粘贴规则书文本。</FieldDescription>
+            <FieldDescription>
+              可一次选择多个文件；PDF 必须带文字层，扫描版不会导入。
+            </FieldDescription>
           </Field>
-          <Button
-            onClick={onImport}
-            disabled={busy || !content.trim() || !ragReady}
-          >
+          <Field>
+            <FieldLabel htmlFor="rulebook-folder">选择规则书文件夹</FieldLabel>
+            <Input
+              id="rulebook-folder"
+              type="file"
+              multiple
+              accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"
+              onChange={(event) => handleFiles(event.target.files)}
+              {...folderInputProps}
+            />
+            <FieldDescription>
+              支持包含多个文字层 PDF 的文件夹；扫描版 PDF 会在导入时被拒收。
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>待导入文件</FieldLabel>
+            <div className="flex max-h-44 flex-col gap-2 overflow-auto rounded-lg border p-2">
+              {files.length ? (
+                files.map((file) => (
+                  <div
+                    key={getDisplayFilePath(file)}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <span className="min-w-0 truncate">{getDisplayFilePath(file)}</span>
+                    <Badge variant="outline">{formatBytes(file.size)}</Badge>
+                  </div>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  尚未选择文件。请选择文件或整个规则书文件夹。
+                </span>
+              )}
+            </div>
+            {files.length > 0 && (
+              <Button variant="outline" onClick={() => onFilesChange([])} disabled={busy}>
+                <Trash2Icon data-icon="inline-start" />
+                清空文件
+              </Button>
+            )}
+          </Field>
+          <Button onClick={onImport} disabled={busy || !canImport}>
             <UploadIcon data-icon="inline-start" />
-            {busy ? "导入中" : "生成向量并导入"}
+            {busy ? "导入中" : ragModeLabel}
           </Button>
           {!ragReady && (
             <Alert>
               <SettingsIcon />
               <AlertTitle>RAG 尚未就绪</AlertTitle>
               <AlertDescription>
-                请在 AI 设置里启用 RAG，并填写 embedding 模型。
+                请在 AI 设置里启用 RAG，并完成当前 RAG 分支的必填配置。
               </AlertDescription>
             </Alert>
           )}
@@ -1440,20 +2350,10 @@ function RulebookPage({
         <CardHeader>
           <CardTitle>规则书知识库</CardTitle>
           <CardDescription>
-            当前分类已有 {documents.length} 份规则书；rerank 模型为空时只使用向量相似度。
+            “{category || "未命名规则书库"}”已有 {documents.length} 次导入；Pinecone 分支默认不启用 rerank。
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid min-h-0 gap-4 lg:grid-cols-[1fr_340px]">
-          <Field className="min-h-0">
-            <FieldLabel htmlFor="rulebook-content">规则书文本</FieldLabel>
-            <Textarea
-              id="rulebook-content"
-              className="min-h-[420px]"
-              value={content}
-              onChange={(event) => onContentChange(event.target.value)}
-              placeholder="粘贴规则说明、判定流程、职业能力、物品规则等文本。"
-            />
-          </Field>
+        <CardContent className="min-h-0">
           <ScrollArea className="h-[calc(100vh-260px)] pr-3">
             <div className="flex flex-col gap-3">
               {documents.map((document) => (
@@ -1463,6 +2363,15 @@ function RulebookPage({
                       <div className="truncate text-sm font-medium">{document.title}</div>
                       <div className="text-xs text-muted-foreground">
                         {document.chunkCount} 个片段 · {new Date(document.updatedAt).toLocaleString()}
+                      </div>
+                      <EditableRulebookCharacterType
+                        key={`${document.id}-${getRulebookCharacterTypeLabel(document)}`}
+                        document={document}
+                        busy={busy}
+                        onSave={onUpdateCharacterType}
+                      />
+                      <div className="truncate text-xs text-muted-foreground">
+                        来源：{document.sourceName}
                       </div>
                     </div>
                     <Button
@@ -1494,6 +2403,49 @@ function RulebookPage({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function EditableRulebookCharacterType({
+  document,
+  busy,
+  onSave,
+}: {
+  document: RulebookDocument;
+  busy: boolean;
+  onSave: (documentId: string, characterType: string) => void;
+}) {
+  const [value, setValue] = useState(getRulebookCharacterTypeLabel(document));
+
+  function save() {
+    const nextValue = value.trim() || defaultRulebookCharacterType;
+    if (nextValue === getRulebookCharacterTypeLabel(document)) {
+      setValue(nextValue);
+      return;
+    }
+    onSave(document.id, nextValue);
+  }
+
+  return (
+    <Field className="max-w-48 gap-1">
+      <FieldLabel htmlFor={`rulebook-character-type-${document.id}`} className="sr-only">
+        角色卡类型标签
+      </FieldLabel>
+      <Input
+        id={`rulebook-character-type-${document.id}`}
+        list="rulebook-character-types"
+        value={value}
+        disabled={busy}
+        className="h-7 text-xs"
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </Field>
   );
 }
 
@@ -1670,13 +2622,109 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("读取规则书失败"));
-    reader.readAsText(file);
+function getRulebookCategories(documents: RulebookDocument[]): string[] {
+  return Array.from(
+    new Set([
+      "轻规则 v1",
+      ...rulesets.map((ruleset) => ruleset.name),
+      ...documents.map((document) => getRulebookCategoryLabel(document.rulesetId)),
+    ]),
+  ).filter(Boolean);
+}
+
+function getCampaignRulebookOptions(
+  documents: RulebookDocument[],
+): Array<{ value: string; label: string }> {
+  const importedIds = new Set(documents.map((document) => document.rulesetId));
+  const options: Array<{ value: string; label: string }> = rulesets.map((ruleset) => {
+    const hasImportedAlias = importedIds.has(ruleset.name);
+    return {
+      value: ruleset.id,
+      label: hasImportedAlias ? `${ruleset.name}（内置规则）` : ruleset.name,
+    };
   });
+  const seen = new Set(options.map((option) => option.value));
+
+  for (const document of documents) {
+    if (seen.has(document.rulesetId)) {
+      continue;
+    }
+    const label = getRulebookCategoryLabel(document.rulesetId);
+    const characterType = getRulebookCharacterTypeLabel(document);
+    const duplicatesBuiltinLabel = rulesets.some((ruleset) => ruleset.name === label);
+    options.push({
+      value: document.rulesetId,
+      label: duplicatesBuiltinLabel
+        ? `${label}（已导入规则书 · ${characterType}）`
+        : `${label} · ${characterType}`,
+    });
+    seen.add(document.rulesetId);
+  }
+
+  return options;
+}
+
+function getRulebookCategoryLabel(category: string): string {
+  return rulesets.find((ruleset) => ruleset.id === category)?.name ?? category;
+}
+
+function getRulebookCharacterTypeLabel(document?: RulebookDocument): string {
+  return document?.characterType?.trim() || defaultRulebookCharacterType;
+}
+
+function getRulebookCharacterTypeForRuleset(
+  rulesetId: string,
+  documents: RulebookDocument[],
+): string {
+  const document = documents.find((item) => item.rulesetId === rulesetId);
+  if (document) {
+    return getRulebookCharacterTypeLabel(document);
+  }
+  return rulesets.some((ruleset) => ruleset.id === rulesetId)
+    ? defaultRulebookCharacterType
+    : defaultRulebookCharacterType;
+}
+
+function getCharacterTypeLabel(character?: Pick<CharacterCard, "characterType">): string {
+  return character?.characterType?.trim() || defaultRulebookCharacterType;
+}
+
+function getRulesetDescription(rulesetId: string): string {
+  const ruleset = rulesets.find((item) => item.id === rulesetId);
+  return ruleset?.description ?? "使用已导入的规则书知识库；角色卡类型由规则书标签决定。";
+}
+
+function getRulebookCategoryAliases(category: string): string[] {
+  const aliases = new Set([category]);
+  const matchedRuleset = rulesets.find((ruleset) => ruleset.name === category);
+  if (matchedRuleset) {
+    aliases.add(matchedRuleset.id);
+  }
+  return Array.from(aliases);
+}
+
+function dedupeRulebookFiles(files: File[]): File[] {
+  const seen = new Set<string>();
+  const result: File[] = [];
+  for (const file of files) {
+    const key = `${getDisplayFilePath(file)}:${file.size}:${file.lastModified}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(file);
+  }
+  return result;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function AvatarPreview({
@@ -1714,16 +2762,20 @@ function SettingsSheet({
   settings,
   busy,
   fetchingProviderId,
+  testingProviderId,
   onChange,
   onSave,
   onFetchProviderModels,
+  onTestProvider,
 }: {
   settings?: AiSettings;
   busy: boolean;
   fetchingProviderId?: string;
+  testingProviderId?: string;
   onChange: (settings: AiSettings) => void;
   onSave: () => void;
   onFetchProviderModels: (providerId: string) => void;
+  onTestProvider: (providerId: string) => void;
 }) {
   if (!settings) {
     return null;
@@ -1747,9 +2799,11 @@ function SettingsSheet({
             settings={settings}
             busy={busy}
             fetchingProviderId={fetchingProviderId}
+            testingProviderId={testingProviderId}
             onChange={onChange}
             onSave={onSave}
             onFetchProviderModels={onFetchProviderModels}
+            onTestProvider={onTestProvider}
           />
         </ScrollArea>
       </SheetContent>
@@ -1761,16 +2815,20 @@ function SettingsForm({
   settings,
   busy,
   fetchingProviderId,
+  testingProviderId,
   onChange,
   onSave,
   onFetchProviderModels,
+  onTestProvider,
 }: {
   settings: AiSettings;
   busy: boolean;
   fetchingProviderId?: string;
+  testingProviderId?: string;
   onChange: (settings: AiSettings) => void;
   onSave: () => void;
   onFetchProviderModels: (providerId: string) => void;
+  onTestProvider: (providerId: string) => void;
 }) {
   return (
     <FieldGroup>
@@ -1800,8 +2858,10 @@ function SettingsForm({
               settings={settings}
               busy={busy}
               isFetching={fetchingProviderId === provider.id}
+              isTesting={testingProviderId === provider.id}
               onChange={onChange}
               onFetchProviderModels={onFetchProviderModels}
+              onTestProvider={onTestProvider}
             />
           ))}
         </div>
@@ -1910,7 +2970,7 @@ function SettingsForm({
       <FieldSet>
         <FieldLabel>规则书 RAG</FieldLabel>
         <FieldDescription>
-          导入规则书和回合检索都使用这里的模型；rerank 模型留空则不调用 rerank。
+          选择本地 OpenAI-compatible 向量，或让 Pinecone 托管 embedding、检索和可选 rerank。
         </FieldDescription>
         <Field orientation="horizontal">
           <Switch
@@ -1924,94 +2984,41 @@ function SettingsForm({
             <FieldDescription>启用后，玩家行动会检索同规则书知识库。</FieldDescription>
           </div>
         </Field>
+        <Field>
+          <FieldLabel htmlFor="rag-source">RAG 分支</FieldLabel>
+          <Select
+            value={settings.rag.source}
+            onValueChange={(source) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: {
+                    ...settings.rag,
+                    source: source === "pinecone" ? "pinecone" : "local",
+                  },
+                }),
+              )
+            }
+          >
+            <SelectTrigger id="rag-source" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="local">本地向量库</SelectItem>
+                <SelectItem value="pinecone">Pinecone Easy RAG</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <FieldDescription>
+            Pinecone 分支只简化规则书 RAG；GM 和 NPC 对话仍使用上面的 Chat Provider。
+          </FieldDescription>
+        </Field>
+        {settings.rag.source === "pinecone" ? (
+          <PineconeRagSettings settings={settings} onChange={onChange} />
+        ) : (
+          <LocalRagSettings settings={settings} onChange={onChange} />
+        )}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor="rag-embedding-provider">Embedding Provider</FieldLabel>
-            <Select
-              value={settings.rag.embeddingProviderId || settings.defaultProviderId}
-              onValueChange={(embeddingProviderId) =>
-                onChange(
-                  mergeSettings(settings, {
-                    rag: { ...settings.rag, embeddingProviderId },
-                  }),
-                )
-              }
-            >
-              <SelectTrigger id="rag-embedding-provider" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {settings.providers.map((provider) => (
-                    <SelectItem key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="rag-embedding-model">Embedding 模型</FieldLabel>
-            <Input
-              id="rag-embedding-model"
-              value={settings.rag.embeddingModel}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) =>
-                onChange(
-                  mergeSettings(settings, {
-                    rag: { ...settings.rag, embeddingModel: event.target.value },
-                  }),
-                )
-              }
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="rag-rerank-provider">Rerank Provider</FieldLabel>
-            <Select
-              value={settings.rag.rerankProviderId || settings.rag.embeddingProviderId || settings.defaultProviderId}
-              onValueChange={(rerankProviderId) =>
-                onChange(
-                  mergeSettings(settings, {
-                    rag: { ...settings.rag, rerankProviderId },
-                  }),
-                )
-              }
-            >
-              <SelectTrigger id="rag-rerank-provider" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {settings.providers.map((provider) => (
-                    <SelectItem key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="rag-rerank-model">Rerank 模型</FieldLabel>
-            <Input
-              id="rag-rerank-model"
-              value={settings.rag.rerankModel}
-              placeholder="留空则不使用 rerank"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) =>
-                onChange(
-                  mergeSettings(settings, {
-                    rag: { ...settings.rag, rerankModel: event.target.value },
-                  }),
-                )
-              }
-            />
-          </Field>
           <Field>
             <FieldLabel htmlFor="rag-top-k">检索片段数</FieldLabel>
             <Input
@@ -2056,22 +3063,325 @@ function SettingsForm({
   );
 }
 
+function LocalRagSettings({
+  settings,
+  onChange,
+}: {
+  settings: AiSettings;
+  onChange: (settings: AiSettings) => void;
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Field>
+        <FieldLabel htmlFor="rag-embedding-provider">Embedding Provider</FieldLabel>
+        <Select
+          value={settings.rag.embeddingProviderId || settings.defaultProviderId}
+          onValueChange={(embeddingProviderId) =>
+            onChange(
+              mergeSettings(settings, {
+                rag: { ...settings.rag, embeddingProviderId },
+              }),
+            )
+          }
+        >
+          <SelectTrigger id="rag-embedding-provider" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {settings.providers.map((provider) => (
+                <SelectItem key={provider.id} value={provider.id}>
+                  {provider.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="rag-embedding-model">Embedding 模型</FieldLabel>
+        <Input
+          id="rag-embedding-model"
+          value={settings.rag.embeddingModel}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(event) =>
+            onChange(
+              mergeSettings(settings, {
+                rag: { ...settings.rag, embeddingModel: event.target.value },
+              }),
+            )
+          }
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="rag-rerank-provider">Rerank Provider</FieldLabel>
+        <Select
+          value={
+            settings.rag.rerankProviderId ||
+            settings.rag.embeddingProviderId ||
+            settings.defaultProviderId
+          }
+          onValueChange={(rerankProviderId) =>
+            onChange(
+              mergeSettings(settings, {
+                rag: { ...settings.rag, rerankProviderId },
+              }),
+            )
+          }
+        >
+          <SelectTrigger id="rag-rerank-provider" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {settings.providers.map((provider) => (
+                <SelectItem key={provider.id} value={provider.id}>
+                  {provider.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="rag-rerank-model">Rerank 模型</FieldLabel>
+        <Input
+          id="rag-rerank-model"
+          value={settings.rag.rerankModel}
+          placeholder="留空则不使用 rerank"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(event) =>
+            onChange(
+              mergeSettings(settings, {
+                rag: { ...settings.rag, rerankModel: event.target.value },
+              }),
+            )
+          }
+        />
+      </Field>
+    </div>
+  );
+}
+
+function PineconeRagSettings({
+  settings,
+  onChange,
+}: {
+  settings: AiSettings;
+  onChange: (settings: AiSettings) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Alert>
+        <DatabaseIcon />
+        <AlertTitle>Pinecone Easy RAG 教程</AlertTitle>
+        <AlertDescription>
+          1. 在 pinecone.io 创建账号并进入 API Keys；2. 复制用户自己的 API
+          Key；3. 在这里填写 API Key，保持默认 index 和模型；4.
+          首次导入规则书时应用会自动创建 integrated embedding index；5.
+          Starter 可以验证小规模规则书库，rerank 默认关闭以避免 500 次/月限制过早耗尽。
+        </AlertDescription>
+      </Alert>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor="pinecone-api-key">Pinecone API Key</FieldLabel>
+          <Input
+            id="pinecone-api-key"
+            type="password"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeApiKey}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: { ...settings.rag, pineconeApiKey: event.target.value },
+                }),
+              )
+            }
+          />
+          <FieldDescription>
+            使用用户自己的 Pinecone key；不要把你的平台密钥打包进桌面端。
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="pinecone-index-name">Index 名称</FieldLabel>
+          <Input
+            id="pinecone-index-name"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeIndexName}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: { ...settings.rag, pineconeIndexName: event.target.value },
+                }),
+              )
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="pinecone-namespace">Namespace</FieldLabel>
+          <Input
+            id="pinecone-namespace"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeNamespace}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: { ...settings.rag, pineconeNamespace: event.target.value },
+                }),
+              )
+            }
+          />
+          <FieldDescription>
+            建议每位用户一个 namespace；同一本规则书只需导入一次，战役引用同一知识库。
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="pinecone-embedding-model">Embedding 模型</FieldLabel>
+          <Input
+            id="pinecone-embedding-model"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeEmbeddingModel}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: {
+                    ...settings.rag,
+                    pineconeEmbeddingModel: event.target.value,
+                  },
+                }),
+              )
+            }
+          />
+          <FieldDescription>默认使用 Pinecone 托管的多语言 embedding。</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="pinecone-cloud">Cloud</FieldLabel>
+          <Input
+            id="pinecone-cloud"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeCloud}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: { ...settings.rag, pineconeCloud: event.target.value },
+                }),
+              )
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="pinecone-region">Region</FieldLabel>
+          <Input
+            id="pinecone-region"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeRegion}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: { ...settings.rag, pineconeRegion: event.target.value },
+                }),
+              )
+            }
+          />
+        </Field>
+      </div>
+      <Field orientation="horizontal">
+        <Switch
+          checked={settings.rag.pineconeRerankEnabled}
+          onCheckedChange={(pineconeRerankEnabled) =>
+            onChange(
+              mergeSettings(settings, {
+                rag: { ...settings.rag, pineconeRerankEnabled },
+              }),
+            )
+          }
+        />
+        <div className="min-w-0 flex-1">
+          <FieldLabel>启用 Pinecone rerank</FieldLabel>
+          <FieldDescription>
+            默认关闭。Starter rerank 请求额度较小，建议只在检索质量不足时开启。
+          </FieldDescription>
+        </div>
+      </Field>
+      {settings.rag.pineconeRerankEnabled && (
+        <Field>
+          <FieldLabel htmlFor="pinecone-rerank-model">Rerank 模型</FieldLabel>
+          <Input
+            id="pinecone-rerank-model"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={settings.rag.pineconeRerankModel}
+            onChange={(event) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: {
+                    ...settings.rag,
+                    pineconeRerankModel: event.target.value,
+                  },
+                }),
+              )
+            }
+          />
+        </Field>
+      )}
+      <Alert>
+        <ExternalLinkIcon />
+        <AlertTitle>用量查询</AlertTitle>
+        <AlertDescription>
+          Pinecone 当前更适合通过控制台查看 Starter 月度用量；检索 API
+          只返回本次请求 usage。打开{" "}
+          <a
+            className="underline underline-offset-4"
+            href={PINECONE_USAGE_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Pinecone Usage
+          </a>{" "}
+          查看 read units、write units、embedding tokens 和 rerank requests。
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
 function ProviderEditor({
   provider,
   index,
   settings,
   busy,
   isFetching,
+  isTesting,
   onChange,
   onFetchProviderModels,
+  onTestProvider,
 }: {
   provider: AiProviderConfig;
   index: number;
   settings: AiSettings;
   busy: boolean;
   isFetching: boolean;
+  isTesting: boolean;
   onChange: (settings: AiSettings) => void;
   onFetchProviderModels: (providerId: string) => void;
+  onTestProvider: (providerId: string) => void;
 }) {
   const canRemove = settings.providers.length > 1;
 
@@ -2083,16 +3393,24 @@ function ProviderEditor({
           <Button
             variant="outline"
             onClick={() => onFetchProviderModels(provider.id)}
-            disabled={busy || isFetching}
+            disabled={busy || isFetching || isTesting}
           >
             <RefreshCwIcon data-icon="inline-start" />
             {isFetching ? "获取中" : "获取模型"}
           </Button>
           <Button
+            variant="outline"
+            onClick={() => onTestProvider(provider.id)}
+            disabled={busy || isFetching || isTesting}
+          >
+            <PlayIcon data-icon="inline-start" />
+            {isTesting ? "测试中" : "测试"}
+          </Button>
+          <Button
             variant="ghost"
             size="icon"
             onClick={() => onChange(removeProvider(settings, provider.id))}
-            disabled={busy || !canRemove}
+            disabled={busy || isFetching || isTesting || !canRemove}
           >
             <Trash2Icon />
             <span className="sr-only">删除 Provider</span>

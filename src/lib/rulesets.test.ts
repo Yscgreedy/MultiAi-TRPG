@@ -15,6 +15,9 @@ describe("rulesets", () => {
     expect(character.concept).toBe("调查员");
     expect(character.attributes.body).toBeGreaterThan(0);
     expect(character.skills.观察).toBe(1);
+    expect(character.background).toBe("");
+    expect(character.inventory).toEqual([]);
+    expect(character.bonds).toEqual([]);
   });
 
   it("round-trips character import and export", () => {
@@ -41,6 +44,52 @@ describe("rulesets", () => {
     expect(character.attributes.mind).toBe(4);
     expect(character.attributes.body).toBe(2);
     expect(character.skills.神秘学).toBe(2);
+  });
+
+  it("clamps generated values to the selected character sheet template bounds", () => {
+    const character = normalizeGeneratedCharacter(
+      {
+        name: "陆青",
+        concept: "过度强化的调查员",
+        attributes: { body: 999, mind: -10 },
+        skills: { 观察: 99, 交涉: -2 },
+      },
+      "light-rules-v1",
+      "通用",
+    );
+
+    expect(character.attributes.body).toBe(5);
+    expect(character.attributes.mind).toBe(1);
+    expect(character.skills.观察).toBe(5);
+    expect(character.skills.交涉).toBe(0);
+  });
+
+  it("fills missing generated values from the template so players do not assign points manually", () => {
+    const character = normalizeGeneratedCharacter(
+      {
+        name: "周砚",
+        concept: "还没分点的角色",
+      },
+      "light-rules-v1",
+      "通用",
+    );
+
+    expect(character.attributes).toMatchObject({
+      body: 2,
+      mind: 2,
+      spirit: 2,
+      charm: 2,
+    });
+    expect(character.skills).toMatchObject({
+      观察: 1,
+      交涉: 1,
+      潜行: 1,
+      战斗: 1,
+      学识: 1,
+    });
+    expect(character.inventory).toEqual([]);
+    expect(character.bonds).toEqual([]);
+    expect(character.background).toBe("");
   });
 
   it("coerces object list items returned by AI into strings", () => {

@@ -4,16 +4,12 @@ export type CampaignStatus = "draft" | "active" | "archived";
 
 export type MessageAuthor = "player" | AiRole | "NPC" | "system";
 
-export interface AttributeBlock {
-  body: number;
-  mind: number;
-  spirit: number;
-  charm: number;
-}
+export type AttributeBlock = Record<string, number>;
 
 export interface CharacterCard {
   id: string;
   rulesetId: string;
+  characterType?: string;
   name: string;
   concept: string;
   background: string;
@@ -33,6 +29,40 @@ export interface CharacterLibraryEntry extends CharacterCard {
   lockedByCampaignId?: string;
   lockedByCampaignTitle?: string;
   lockedAt?: string;
+}
+
+export type CharacterCreationMessageAuthor = "player" | "GM" | "tool";
+
+export interface CharacterCreationMessage {
+  id: string;
+  author: CharacterCreationMessageAuthor;
+  content: string;
+  createdAt: string;
+}
+
+export type CharacterCreationStatus =
+  | "chatting"
+  | "ready"
+  | "generating"
+  | "completed";
+
+export interface CharacterCreationToolResult {
+  toolName: string;
+  result: unknown;
+  createdAt: string;
+}
+
+export interface CharacterCreationSession {
+  id: string;
+  rulesetId: string;
+  characterType: string;
+  draft: CharacterCard;
+  messages: CharacterCreationMessage[];
+  toolResults: CharacterCreationToolResult[];
+  status: CharacterCreationStatus;
+  rulesContext?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface NpcCharacter extends CharacterCard {
@@ -115,10 +145,19 @@ export interface AiProviderConfig {
 
 export interface AiRagSettings {
   enabled: boolean;
+  source: "local" | "pinecone";
   embeddingProviderId?: string;
   embeddingModel: string;
   rerankProviderId?: string;
   rerankModel: string;
+  pineconeApiKey: string;
+  pineconeIndexName: string;
+  pineconeNamespace: string;
+  pineconeCloud: string;
+  pineconeRegion: string;
+  pineconeEmbeddingModel: string;
+  pineconeRerankEnabled: boolean;
+  pineconeRerankModel: string;
   topK: number;
   chunkSize: number;
 }
@@ -143,6 +182,7 @@ export interface CampaignDetail {
 export interface RulebookDocument {
   id: string;
   rulesetId: string;
+  characterType?: string;
   title: string;
   sourceName: string;
   content: string;

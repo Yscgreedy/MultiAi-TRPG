@@ -46,8 +46,12 @@ export interface GameRepository {
     document: RulebookDocument,
     chunks: RulebookChunk[],
   ): Promise<void>;
+  updateRulebookDocumentMeta(
+    documentId: string,
+    meta: Pick<RulebookDocument, "characterType">,
+  ): Promise<void>;
   deleteRulebookDocument(documentId: string): Promise<void>;
-  listRulebookChunks(rulesetId: string): Promise<RulebookChunk[]>;
+  listRulebookChunks(rulesetId?: string): Promise<RulebookChunk[]>;
   listCampaigns(): Promise<Campaign[]>;
   createCampaign(input: {
     title: string;
@@ -266,6 +270,22 @@ export class BrowserRepository implements GameRepository {
     this.persist();
   }
 
+  async updateRulebookDocumentMeta(
+    documentId: string,
+    meta: Pick<RulebookDocument, "characterType">,
+  ): Promise<void> {
+    this.store.rulebookDocuments = this.store.rulebookDocuments.map((document) =>
+      document.id === documentId
+        ? {
+            ...document,
+            characterType: meta.characterType?.trim() || "通用",
+            updatedAt: nowIso(),
+          }
+        : document,
+    );
+    this.persist();
+  }
+
   async deleteRulebookDocument(documentId: string): Promise<void> {
     this.store.rulebookDocuments = this.store.rulebookDocuments.filter(
       (document) => document.id !== documentId,
@@ -276,9 +296,9 @@ export class BrowserRepository implements GameRepository {
     this.persist();
   }
 
-  async listRulebookChunks(rulesetId: string): Promise<RulebookChunk[]> {
+  async listRulebookChunks(rulesetId?: string): Promise<RulebookChunk[]> {
     return this.store.rulebookChunks
-      .filter((chunk) => chunk.rulesetId === rulesetId)
+      .filter((chunk) => !rulesetId || chunk.rulesetId === rulesetId)
       .sort((a, b) => a.chunkIndex - b.chunkIndex);
   }
 
@@ -696,10 +716,11 @@ export class SqliteRepository implements GameRepository {
   ): Promise<void> {
     await this.execute(
       `INSERT INTO rulebook_documents
-       (id, ruleset_id, title, source_name, content, chunk_count, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (id, ruleset_id, character_type, title, source_name, content, chunk_count, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT(id) DO UPDATE SET
        ruleset_id = excluded.ruleset_id,
+       character_type = excluded.character_type,
        title = excluded.title,
        source_name = excluded.source_name,
        content = excluded.content,
@@ -708,6 +729,7 @@ export class SqliteRepository implements GameRepository {
       [
         document.id,
         document.rulesetId,
+        document.characterType || "通用",
         document.title,
         document.sourceName,
         document.content,
@@ -737,6 +759,19 @@ export class SqliteRepository implements GameRepository {
     }
   }
 
+  async updateRulebookDocumentMeta(
+    documentId: string,
+    meta: Pick<RulebookDocument, "characterType">,
+  ): Promise<void> {
+    await this.execute(
+      `UPDATE rulebook_documents
+       SET character_type = $1,
+           updated_at = $2
+       WHERE id = $3`,
+      [meta.characterType?.trim() || "通用", nowIso(), documentId],
+    );
+  }
+
   async deleteRulebookDocument(documentId: string): Promise<void> {
     await this.execute("DELETE FROM rulebook_chunks WHERE document_id = $1", [
       documentId,
@@ -746,10 +781,12 @@ export class SqliteRepository implements GameRepository {
     ]);
   }
 
-  async listRulebookChunks(rulesetId: string): Promise<RulebookChunk[]> {
+  async listRulebookChunks(rulesetId?: string): Promise<RulebookChunk[]> {
     const rows = await this.select<RulebookChunkRow>(
-      "SELECT * FROM rulebook_chunks WHERE ruleset_id = $1 ORDER BY document_id, chunk_index ASC",
-      [rulesetId],
+      rulesetId
+        ? "SELECT * FROM rulebook_chunks WHERE ruleset_id = $1 ORDER BY document_id, chunk_index ASC"
+        : "SELECT * FROM rulebook_chunks ORDER BY document_id, chunk_index ASC",
+      rulesetId ? [rulesetId] : undefined,
     );
     return rows.map(rulebookChunkFromRow);
   }
@@ -1156,6 +1193,7 @@ interface NpcCharacterRow {
 interface RulebookDocumentRow {
   id: string;
   ruleset_id: string;
+  character_type?: string;
   title: string;
   source_name: string;
   content: string;
@@ -1239,6 +1277,7 @@ function rulebookDocumentFromRow(row: RulebookDocumentRow): RulebookDocument {
   return {
     id: row.id,
     rulesetId: row.ruleset_id,
+    characterType: row.character_type || "通用",
     title: row.title,
     sourceName: row.source_name,
     content: row.content,

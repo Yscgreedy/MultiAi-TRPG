@@ -1,10 +1,12 @@
 import { generateEmbeddings, rerankDocuments } from "@/lib/ai";
 import { createId, nowIso } from "@/lib/id";
+import { searchPineconeRulebook, upsertRulebookToPinecone } from "@/lib/pinecone";
 import type { GameRepository } from "@/lib/storage";
 import type { AiSettings, RulebookChunk, RulebookDocument } from "@/types";
 
 export interface ImportRulebookInput {
   rulesetId: string;
+  characterType?: string;
   title: string;
   sourceName: string;
   content: string;
@@ -26,10 +28,14 @@ export async function importRulebookDocument(
   const timestamp = nowIso();
   const documentId = createId("rulebook");
   const chunks = chunkRulebookText(content, input.settings.rag.chunkSize);
-  const embeddings = await generateEmbeddings(input.settings, chunks);
+  const embeddings =
+    input.settings.rag.source === "pinecone"
+      ? chunks.map(() => [])
+      : await generateEmbeddings(input.settings, chunks);
   const document: RulebookDocument = {
     id: documentId,
     rulesetId: input.rulesetId,
+    characterType: input.characterType?.trim() || "通用",
     title: input.title.trim() || input.sourceName || "未命名规则书",
     sourceName: input.sourceName || "manual",
     content,
@@ -47,6 +53,9 @@ export async function importRulebookDocument(
     createdAt: timestamp,
   }));
 
+  if (input.settings.rag.source === "pinecone") {
+    await upsertRulebookToPinecone(input.settings.rag, document, rulebookChunks);
+  }
   await repository.saveRulebookDocument(document, rulebookChunks);
   return document;
 }
@@ -60,7 +69,23 @@ export async function buildRulesRagContext(
   if (!settings.rag.enabled || !query.trim()) {
     return "";
   }
-  const chunks = await repository.listRulebookChunks(rulesetId);
+  if (settings.rag.source === "pinecone") {
+    const scoped = await searchPineconeRulebook(settings.rag, rulesetId, query);
+    const result = scoped.hits.length
+      ? scoped
+      : await searchPineconeRulebook(settings.rag, undefined, query);
+    return result.hits
+      .slice(0, settings.rag.topK)
+      .map(
+        (hit, index) =>
+          `[规则片段 ${index + 1} | chunk ${hit.chunkIndex + 1} | score ${hit.score.toFixed(3)}]\n${hit.content}`,
+      )
+      .join("\n\n");
+  }
+  let chunks = await repository.listRulebookChunks(rulesetId);
+  if (!chunks.length) {
+    chunks = await repository.listRulebookChunks();
+  }
   if (!chunks.length) {
     return "";
   }
