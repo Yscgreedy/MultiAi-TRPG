@@ -78,6 +78,202 @@ describe("rulebook RAG", () => {
     expect(JSON.stringify(requests)).not.toContain("rerank");
   });
 
+  it("invalidates local RAG cache when rulebook documents change", async () => {
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const inputs = Array.isArray(body.input) ? body.input : [body.input];
+      return jsonResponse({
+        data: inputs.map((input: string) => ({
+          embedding: input.includes("旧版") || input.includes("老锁") ? [1, 0] : [0, 1],
+        })),
+      });
+    });
+    const settings = normalizeAiSettings({
+      ...defaultAiSettings,
+      providers: [{ ...defaultAiSettings.providers[0], apiKey: "test-key" }],
+      rag: {
+        ...defaultAiSettings.rag,
+        rerankModel: "",
+        topK: 1,
+        chunkSize: 120,
+      },
+    });
+    const repository = new BrowserRepository();
+    await repository.init();
+
+    const oldDocument = await importRulebookDocument(repository, {
+      rulesetId: "light-rules-v1",
+      title: "旧判定规则",
+      sourceName: "old-rules.md",
+      content: "老锁规则：旧版撬锁检定使用 mind + 调查，并承受风险。",
+      settings,
+    });
+    const oldContext = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我想撬锁",
+    );
+
+    await repository.deleteRulebookDocument(oldDocument.id);
+    await importRulebookDocument(repository, {
+      rulesetId: "light-rules-v1",
+      title: "新判定规则",
+      sourceName: "new-rules.md",
+      content: "新版开锁规则：撬锁时优先使用 finesse + 工具，并可请求协助。",
+      settings,
+    });
+    const refreshedContext = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我想撬锁",
+    );
+
+    expect(oldContext).toContain("老锁规则");
+    expect(refreshedContext).toContain("新版开锁规则");
+    expect(refreshedContext).not.toContain("老锁规则");
+  });
+
+  it("does not fall back across rulebooks locally by default", async () => {
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const inputs = Array.isArray(body.input) ? body.input : [body.input];
+      return jsonResponse({
+        data: inputs.map((input: string) => ({
+          embedding: input.includes("星舰") ? [1, 0] : [0, 1],
+        })),
+      });
+    });
+    const settings = normalizeAiSettings({
+      ...defaultAiSettings,
+      providers: [{ ...defaultAiSettings.providers[0], apiKey: "test-key" }],
+      rag: {
+        ...defaultAiSettings.rag,
+        rerankModel: "",
+        topK: 1,
+      },
+    });
+    const repository = new BrowserRepository();
+    await repository.init();
+
+    await importRulebookDocument(repository, {
+      rulesetId: "space-rules",
+      title: "太空规则",
+      sourceName: "space.md",
+      content: "星舰闪避依赖 agility + piloting。",
+      settings,
+    });
+    const context = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我要驾驶星舰闪避炮火",
+    );
+
+    expect(context).toBe("");
+  });
+
+  it("falls back across rulebooks locally only when enabled", async () => {
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const inputs = Array.isArray(body.input) ? body.input : [body.input];
+      return jsonResponse({
+        data: inputs.map((input: string) => ({
+          embedding: input.includes("星舰") ? [1, 0] : [0, 1],
+        })),
+      });
+    });
+    const settings = normalizeAiSettings({
+      ...defaultAiSettings,
+      providers: [{ ...defaultAiSettings.providers[0], apiKey: "test-key" }],
+      rag: {
+        ...defaultAiSettings.rag,
+        crossRulebookFallbackEnabled: true,
+        rerankModel: "",
+        topK: 1,
+      },
+    });
+    const repository = new BrowserRepository();
+    await repository.init();
+
+    await importRulebookDocument(repository, {
+      rulesetId: "space-rules",
+      title: "太空规则",
+      sourceName: "space.md",
+      content: "星舰闪避依赖 agility + piloting。",
+      settings,
+    });
+    const context = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我要驾驶星舰闪避炮火",
+    );
+
+    expect(context).toContain("星舰闪避");
+  });
+
+  it("invalidates fallback cache when another rulebook changes", async () => {
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const inputs = Array.isArray(body.input) ? body.input : [body.input];
+      return jsonResponse({
+        data: inputs.map((input: string) => ({
+          embedding:
+            input.includes("星舰") || input.includes("相位") || input.includes("曲速")
+              ? [1, 0]
+              : [0, 1],
+        })),
+      });
+    });
+    const settings = normalizeAiSettings({
+      ...defaultAiSettings,
+      providers: [{ ...defaultAiSettings.providers[0], apiKey: "test-key" }],
+      rag: {
+        ...defaultAiSettings.rag,
+        crossRulebookFallbackEnabled: true,
+        rerankModel: "",
+        topK: 1,
+      },
+    });
+    const repository = new BrowserRepository();
+    await repository.init();
+
+    const originalDocument = await importRulebookDocument(repository, {
+      rulesetId: "space-rules",
+      title: "旧太空规则",
+      sourceName: "space-old.md",
+      content: "星舰相位闪避依赖 agility + piloting。",
+      settings,
+    });
+    const oldContext = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我要驾驶星舰闪避炮火",
+    );
+
+    await repository.deleteRulebookDocument(originalDocument.id);
+    await importRulebookDocument(repository, {
+      rulesetId: "space-rules",
+      title: "新太空规则",
+      sourceName: "space-new.md",
+      content: "星舰曲速规避优先使用 insight + piloting。",
+      settings,
+    });
+    const refreshedContext = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我要驾驶星舰闪避炮火",
+    );
+
+    expect(oldContext).toContain("星舰相位闪避");
+    expect(refreshedContext).toContain("星舰曲速规避");
+    expect(refreshedContext).not.toContain("星舰相位闪避");
+  });
+
   it("uses Pinecone integrated embedding and leaves rerank disabled by default", async () => {
     const requests: Array<{ url: string; body?: unknown }> = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
@@ -153,6 +349,67 @@ describe("rulebook RAG", () => {
     expect(requests.some((request) => request.url.includes("/upsert"))).toBe(true);
     expect(requests.some((request) => request.url.includes("/search"))).toBe(true);
     expect(JSON.stringify(requests)).not.toContain("rerank");
+  });
+
+  it("uses the unified fallback setting for Pinecone global fallback", async () => {
+    const requests: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const body = init?.body ? parseBody(init.body) : undefined;
+      requests.push({ url, body });
+      if (url.includes("/indexes/multi-ai-trpg-rag")) {
+        return jsonResponse({
+          name: "multi-ai-trpg-rag",
+          host: "test-index.svc.pinecone.io",
+          status: { ready: true },
+        });
+      }
+      if (url.includes("/search") && requests.filter((request) => request.url.includes("/search")).length === 1) {
+        return jsonResponse({ result: { hits: [] }, usage: { read_units: 1 } });
+      }
+      if (url.includes("/search")) {
+        return jsonResponse({
+          result: {
+            hits: [
+              {
+                _id: "rulechunk_2",
+                _score: 0.82,
+                fields: {
+                  chunk_text: "跨规则书命中的备用片段。",
+                  chunk_index: 1,
+                },
+              },
+            ],
+          },
+          usage: { read_units: 2 },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    const settings = normalizeAiSettings({
+      ...defaultAiSettings,
+      rag: {
+        ...defaultAiSettings.rag,
+        source: "pinecone",
+        pineconeApiKey: "pc-test-key",
+        crossRulebookFallbackEnabled: true,
+      },
+    });
+    const repository = new BrowserRepository();
+    await repository.init();
+    const usageEvents: PineconeUsageEvent[] = [];
+
+    const context = await buildRulesRagContext(
+      repository,
+      settings,
+      "light-rules-v1",
+      "我尝试撬锁。",
+      { onPineconeUsage: (event) => usageEvents.push(event) },
+    );
+
+    expect(context).toContain("跨规则书命中的备用片段");
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0].fallbackToGlobalSearch).toBe(true);
+    expect(usageEvents[0].usage?.read_units).toBe(3);
   });
 
   it("reports Pinecone 429 quota errors with Chinese downgrade guidance", async () => {

@@ -157,6 +157,7 @@ export interface AiProviderConfig {
 export interface AiRagSettings {
   enabled: boolean;
   source: "local" | "pinecone";
+  crossRulebookFallbackEnabled: boolean;
   embeddingProviderId?: string;
   embeddingModel: string;
   rerankProviderId?: string;
@@ -169,7 +170,6 @@ export interface AiRagSettings {
   pineconeEmbeddingModel: string;
   pineconeRerankEnabled: boolean;
   pineconeRerankModel: string;
-  pineconeGlobalFallbackEnabled: boolean;
   topK: number;
   chunkSize: number;
 }

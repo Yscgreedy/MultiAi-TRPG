@@ -521,6 +521,24 @@ function SettingsForm({
         ) : (
           <LocalRagSettings settings={settings} onChange={onChange} />
         )}
+        <Field orientation="horizontal">
+          <Switch
+            checked={settings.rag.crossRulebookFallbackEnabled}
+            onCheckedChange={(crossRulebookFallbackEnabled) =>
+              onChange(
+                mergeSettings(settings, {
+                  rag: { ...settings.rag, crossRulebookFallbackEnabled },
+                }),
+              )
+            }
+          />
+          <div className="min-w-0 flex-1">
+            <FieldLabel>允许跨规则书回退</FieldLabel>
+            <FieldDescription>
+              关闭后，只检索当前规则书库；开启后，当前规则书库无结果时才会回退到其他规则书内容。
+            </FieldDescription>
+          </div>
+        </Field>
         <div className="grid gap-4 md:grid-cols-2">
           <Field>
             <FieldLabel htmlFor="rag-top-k">检索片段数</FieldLabel>
@@ -870,24 +888,6 @@ function PineconeRagSettings({
           <FieldLabel>启用 Pinecone rerank</FieldLabel>
           <FieldDescription>
             默认关闭。Starter rerank 请求额度较小，建议只在检索质量不足时开启。
-          </FieldDescription>
-        </div>
-      </Field>
-      <Field orientation="horizontal">
-        <Switch
-          checked={settings.rag.pineconeGlobalFallbackEnabled}
-          onCheckedChange={(pineconeGlobalFallbackEnabled) =>
-            onChange(
-              mergeSettings(settings, {
-                rag: { ...settings.rag, pineconeGlobalFallbackEnabled },
-              }),
-            )
-          }
-        />
-        <div className="min-w-0 flex-1">
-          <FieldLabel>空结果时全局回退</FieldLabel>
-          <FieldDescription>
-            开启后，同规则库检索无结果会再查全局 namespace；关闭可减少一次 Pinecone 请求。
           </FieldDescription>
         </div>
       </Field>

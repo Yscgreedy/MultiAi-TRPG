@@ -23,6 +23,7 @@ target/
 .omx/
 multi-ai-trpg.db*
 image.png
+TODO.md
 
 # Editor directories and files
 .vscode/*

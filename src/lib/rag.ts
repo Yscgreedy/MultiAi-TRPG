@@ -104,7 +104,17 @@ export async function buildRulesRagContext(
       options,
     );
   }
-  const cacheKey = createRagContextCacheKey(settings, rulesetId, query);
+  const documentVersion = await buildRulebookVersionSignature(
+    repository,
+    rulesetId,
+    settings.rag.crossRulebookFallbackEnabled,
+  );
+  const cacheKey = createRagContextCacheKey(
+    settings,
+    rulesetId,
+    query,
+    documentVersion,
+  );
   const cached = ragContextCache.get(cacheKey);
   if (cached !== undefined) {
     ragContextCache.delete(cacheKey);
@@ -132,7 +142,7 @@ async function buildRulesRagContextUncached(
   if (settings.rag.source === "pinecone") {
     const scoped = await searchPineconeRulebook(settings.rag, rulesetId, query);
     const shouldFallback =
-      settings.rag.pineconeGlobalFallbackEnabled && !scoped.hits.length;
+      settings.rag.crossRulebookFallbackEnabled && !scoped.hits.length;
     const result = scoped.hits.length || !shouldFallback
       ? scoped
       : await searchPineconeRulebook(settings.rag, undefined, query);
@@ -154,7 +164,7 @@ async function buildRulesRagContextUncached(
       .join("\n\n");
   }
   let chunks = await repository.listRulebookChunks(rulesetId);
-  if (!chunks.length) {
+  if (!chunks.length && settings.rag.crossRulebookFallbackEnabled) {
     chunks = await repository.listRulebookChunks();
   }
   if (!chunks.length) {
@@ -196,12 +206,15 @@ function createRagContextCacheKey(
   settings: AiSettings,
   rulesetId: string,
   query: string,
+  documentVersion: string,
 ): string {
   const rag = settings.rag;
   return JSON.stringify({
     rulesetId,
     query: query.trim(),
+    documentVersion,
     source: rag.source,
+    crossRulebookFallbackEnabled: rag.crossRulebookFallbackEnabled,
     topK: rag.topK,
     embeddingProviderId: rag.embeddingProviderId,
     embeddingModel: rag.embeddingModel,
@@ -212,8 +225,24 @@ function createRagContextCacheKey(
     pineconeEmbeddingModel: rag.pineconeEmbeddingModel,
     pineconeRerankEnabled: rag.pineconeRerankEnabled,
     pineconeRerankModel: rag.pineconeRerankModel,
-    pineconeGlobalFallbackEnabled: rag.pineconeGlobalFallbackEnabled,
   });
+}
+
+async function buildRulebookVersionSignature(
+  repository: GameRepository,
+  rulesetId: string,
+  includeFallbackCorpus: boolean,
+): Promise<string> {
+  const documents = includeFallbackCorpus
+    ? await repository.listRulebookDocuments()
+    : await repository.listRulebookDocuments(rulesetId);
+  if (!documents.length) {
+    return "none";
+  }
+  return documents
+    .map((document) => `${document.id}:${document.updatedAt}:${document.chunkCount}`)
+    .sort()
+    .join("|");
 }
 
 function rememberRagContext(cacheKey: string, context: string): void {

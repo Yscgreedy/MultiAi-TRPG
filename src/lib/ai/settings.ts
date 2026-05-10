@@ -51,6 +51,7 @@ export const defaultAiSettings: AiSettings = {
   rag: {
     enabled: true,
     source: "local",
+    crossRulebookFallbackEnabled: false,
     embeddingProviderId: "openai",
     embeddingModel: "text-embedding-3-small",
     rerankProviderId: "openai",
@@ -63,11 +64,14 @@ export const defaultAiSettings: AiSettings = {
     pineconeEmbeddingModel: "llama-text-embed-v2",
     pineconeRerankEnabled: false,
     pineconeRerankModel: "bge-reranker-v2-m3",
-    pineconeGlobalFallbackEnabled: true,
     topK: 4,
     chunkSize: 900,
   },
 };
+
+interface LegacyAiRagSettings extends Partial<AiRagSettings> {
+  pineconeGlobalFallbackEnabled?: boolean;
+}
 
 interface LegacyAiSettings {
   baseUrl?: string;
@@ -77,7 +81,7 @@ interface LegacyAiSettings {
   providers?: AiProviderConfig[];
   defaultProviderId?: string;
   responseMode?: AiSettings["responseMode"];
-  rag?: Partial<AiRagSettings>;
+  rag?: LegacyAiRagSettings;
 }
 
 export function normalizeAiSettings(raw: unknown): AiSettings {
@@ -131,7 +135,7 @@ export function normalizeAiSettings(raw: unknown): AiSettings {
 }
 
 function normalizeRagSettings(
-  raw: Partial<AiRagSettings> | undefined,
+  raw: LegacyAiRagSettings | undefined,
   providers: AiProviderConfig[],
   defaultProviderId: string,
 ): AiRagSettings {
@@ -149,6 +153,8 @@ function normalizeRagSettings(
   return {
     enabled: raw?.enabled ?? true,
     source: raw?.source === "pinecone" ? "pinecone" : "local",
+    crossRulebookFallbackEnabled:
+      raw?.crossRulebookFallbackEnabled ?? raw?.pineconeGlobalFallbackEnabled ?? false,
     embeddingProviderId,
     embeddingModel: raw?.embeddingModel || "text-embedding-3-small",
     rerankProviderId,
@@ -163,7 +169,6 @@ function normalizeRagSettings(
     pineconeRerankEnabled: raw?.pineconeRerankEnabled ?? false,
     pineconeRerankModel:
       raw?.pineconeRerankModel?.trim() || "bge-reranker-v2-m3",
-    pineconeGlobalFallbackEnabled: raw?.pineconeGlobalFallbackEnabled ?? true,
     topK: clampInteger(raw?.topK, 1, 12, 4),
     chunkSize: clampInteger(raw?.chunkSize, 300, 2400, 900),
   };
@@ -217,4 +222,3 @@ export function parseModelValue(value: string): {
     model: modelParts.join("::"),
   };
 }
-
